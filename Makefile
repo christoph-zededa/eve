@@ -31,7 +31,7 @@ HV=$(HV_DEFAULT)
 # Enable development build (disabled by default)
 DEV=n
 # How large to we want the disk to be in Mb
-MEDIA_SIZE=8192
+MEDIA_SIZE=32768
 # Image type for final disk images
 IMG_FORMAT=qcow2
 # Filesystem type for rootfs image
@@ -212,8 +212,8 @@ QEMU_TPM_DEVICE_riscv64=tpm-tis
 QEMU_OPTS_TPM_Y_$(ZARCH)=-chardev socket,id=chrtpm,path=$(CURRENT_SWTPM)/swtpm-sock -tpmdev emulator,id=tpm0,chardev=chrtpm -device $(QEMU_TPM_DEVICE_$(ZARCH)),tpmdev=tpm0
 QEMU_OPTS_TPM=$(QEMU_OPTS_TPM_$(TPM:%=Y)_$(ZARCH))
 
-QEMU_OPTS_amd64=-smbios type=1,serial=31415926
-QEMU_OPTS_arm64=-smbios type=1,serial=31415926 -drive file=fat:rw:$(dir $(DEVICETREE_DTB)),label=QEMU_DTB,format=vvfat
+QEMU_OPTS_amd64=-smbios type=1,serial=zededazededa
+QEMU_OPTS_arm64=-smbios type=1,serial=zededazededa -drive file=fat:rw:$(dir $(DEVICETREE_DTB)),label=QEMU_DTB,format=vvfat
 QEMU_OPTS_riscv64=-kernel $(UBOOT_IMG)/u-boot.bin -device virtio-blk,drive=uefi-disk
 QEMU_OPTS_COMMON= -m $(QEMU_MEMORY) -smp 4 -display none $(QEMU_OPTS_BIOS) \
         -serial mon:stdio      \
