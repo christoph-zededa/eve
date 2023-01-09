@@ -5,6 +5,9 @@
 # Start with a default content for resolv.conf
 echo 'nameserver 8.8.8.8' > /etc/resolv.conf
 
+echo '172.16.18.24 zedcontrol.local.zededa.net' >> /etc/hosts
+echo '172.16.18.24 zedcloud.local.zededa.net' >> /etc/hosts
+
 #Copy pre-defined fscrypt.conf
 cp fscrypt.conf /etc/fscrypt.conf
 
