@@ -315,7 +315,7 @@ QEMU_OPTS_VGA_DISPLAY_arm64=-device virtio-gpu-pci -usb -device usb-ehci,id=ehci
 QEMU_OPTS_VGA_DISPLAY_riscv64=-vga std
 QEMU_OPTS_COMMON= -m $(QEMU_MEMORY) -smp 4  $(QEMU_OPTS_BIOS) \
         -serial mon:stdio      \
-        -global ICH9-LPC.noreboot=false -watchdog-action reset \
+	-global ICH9-LPC.noreboot=true -watchdog-action none \
         -rtc base=utc,clock=rt \
         -netdev user,id=eth0,net=$(IPS_NET1),dhcpstart=$(IPS_NET1_FIRST_IP),hostfwd=tcp::$(SSH_PORT)-:22$(QEMU_TFTP_OPTS) -device virtio-net-pci,netdev=eth0,romfile="" \
 	$(QEMU_OPTS_eth1) \
