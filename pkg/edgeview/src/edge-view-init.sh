@@ -1,5 +1,7 @@
 #!/bin/sh
 
+echo '192.168.169.100 zedcloud.local.zededa.net' >> /etc/hosts
+
 if [ -z "$EDGEVIEW_CLIENT" ]; then
   [ -f /config/hosts ] && cat /config/hosts >> /etc/hosts
 
