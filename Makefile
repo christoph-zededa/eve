@@ -37,7 +37,7 @@ HV=$(HV_DEFAULT)
 # Enable development build (disabled by default)
 DEV=n
 # How large to we want the disk to be in Mb
-MEDIA_SIZE=32768
+MEDIA_SIZE?=75536
 # Image type for final disk images
 IMG_FORMAT=qcow2
 ifdef LIVE_UPDATE
@@ -234,7 +234,7 @@ QEMU_OPTS_NET1_FIRST_IP=192.168.1.10
 QEMU_OPTS_NET2=192.168.2.0/24
 QEMU_OPTS_NET2_FIRST_IP=192.168.2.10
 
-QEMU_MEMORY:=4096
+QEMU_MEMORY?=16384
 QEMU_EVE_SERIAL?=31415926
 
 PFLASH_amd64=y
@@ -258,9 +258,9 @@ endif
 QEMU_OPTS_amd64=-smbios type=1,serial=$(QEMU_EVE_SERIAL)
 QEMU_OPTS_arm64=-smbios type=1,serial=$(QEMU_EVE_SERIAL) -drive file=fat:rw:$(dir $(DEVICETREE_DTB)),label=QEMU_DTB,format=vvfat
 QEMU_OPTS_riscv64=-kernel $(UBOOT_IMG)/u-boot.bin -device virtio-blk,drive=uefi-disk
-QEMU_OPTS_COMMON= -m $(QEMU_MEMORY) -smp 4 -display none $(QEMU_OPTS_BIOS) \
+QEMU_OPTS_COMMON= -m $(QEMU_MEMORY) -smp 12 -display none $(QEMU_OPTS_BIOS) \
         -serial mon:stdio      \
-	-global ICH9-LPC.noreboot=false -watchdog-action reset \
+	-global ICH9-LPC.noreboot=false -watchdog-action none \
         -rtc base=utc,clock=rt \
         -netdev user,id=eth0,net=$(QEMU_OPTS_NET1),dhcpstart=$(QEMU_OPTS_NET1_FIRST_IP),hostfwd=tcp::$(SSH_PORT)-:22$(QEMU_TFTP_OPTS) -device virtio-net-pci,netdev=eth0,romfile="" \
 	$(QEMU_OPTS_eth1) \
