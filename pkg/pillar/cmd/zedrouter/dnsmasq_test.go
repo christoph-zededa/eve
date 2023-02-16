@@ -395,7 +395,7 @@ func TestRunDnsmasq(t *testing.T) {
 	}
 	dnEnv, ok := createDhcpNetworkEnv(bridgeAddr)
 	if !ok {
-		t.Skipf("Could not create bridge device, probably not enough permissions: %+v", err)
+		t.Skipf("Could not create bridge device, probably not enough permissions, uid: %d", os.Getuid())
 	}
 	defer dnEnv.Stop()
 

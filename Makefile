@@ -265,7 +265,7 @@ ifeq ($(V),1)
 endif
 
 DOCKER_GO = _() { $(SET_X); mkdir -p $(CURDIR)/.go/src/$${3:-dummy} ; mkdir -p $(CURDIR)/.go/bin ; \
-    docker_go_line="docker run $$DOCKER_GO_ARGS -i --rm -u $(USER) -w /go/src/$${3:-dummy} \
+    docker_go_line="docker run $$DOCKER_GO_ARGS -i --rm -u root -w /go/src/$${3:-dummy} \
     -v $(CURDIR)/.go:/go -v $$2:/go/src/$${3:-dummy} -v $${4:-$(CURDIR)/.go/bin}:/go/bin -v $(CURDIR)/:/eve -v $${HOME}/.cache/go-build:/home/$(USER)/.cache/go-build \
     -e GOOS -e GOARCH -e CGO_ENABLED -e BUILD=local $(GOBUILDER) bash --noprofile --norc -c" ; \
     verbose=$(V) ;\
@@ -352,7 +352,7 @@ currentversion:
 
 test: $(LINUXKIT) test-images-patches | $(DIST)
 	@echo Running tests on $(GOMODULE)
-	$(QUIET)DOCKER_GO_ARGS="--privileged -u root"; $(DOCKER_GO) "gotestsum --jsonfile $(DOCKER_DIST)/results.json --junitfile $(DOCKER_DIST)/results.xml" $(GOTREE) $(GOMODULE)
+	$(QUIET)DOCKER_GO_ARGS="--privileged -u root"; $(DOCKER_GO) "go test -v cmd/zedrouter" $(GOTREE) $(GOMODULE)
 	$(QUIET): $@: Succeeded
 
 # wrap command into DOCKER_GO and propagate it to the pillar's Makefile
