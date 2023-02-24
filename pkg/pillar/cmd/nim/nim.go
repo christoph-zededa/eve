@@ -75,7 +75,7 @@ type nim struct {
 
 	// NIM components
 	connTester     *conntester.ZedcloudConnectivityTester
-	dpcManager     *dpcmanager.DpcManager
+	dpcManager     dpcmanager.DpcManagerInterface
 	dpcReconciler  dpcreconciler.DpcReconciler
 	networkMonitor netmonitor.NetworkMonitor
 

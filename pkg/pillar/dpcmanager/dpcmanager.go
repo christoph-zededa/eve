@@ -33,6 +33,18 @@ const LastResortKey = "lastresort"
 
 var nilUUID = uuid.UUID{} // used as a constant
 
+type DpcManagerInterface interface {
+	Init(ctx context.Context) error
+	Run(ctx context.Context) (err error)
+	AddDPC(dpc types.DevicePortConfig)
+	DelDPC(dpc types.DevicePortConfig)
+	UpdateGCP(gcp types.ConfigItemValueMap)
+	UpdateAA(aa types.AssignableAdapters)
+	UpdateRadioSilence(rs types.RadioSilence)
+	UpdateDevUUID(devUUID uuid.UUID)
+	GetDNS() types.DeviceNetworkStatus
+}
+
 // DpcManager manages a list of received device port configurations.
 // Note that device port configuration (DevicePortConfig struct; abbreviated
 // to DPC) represents configuration for all (physical) network interfaces
