@@ -5,22 +5,27 @@ package nim
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"net"
 	"os"
+	"sync"
 	"time"
 
-	dns "github.com/Focinfi/go-dns-resolver"
+	oldDns "github.com/Focinfi/go-dns-resolver"
 	"github.com/lf-edge/eve/pkg/pillar/types"
+	"github.com/miekg/dns"
 )
 
 const (
-	minTTLSec       int = 30
-	maxTTLSec       int = 3600
-	extraSec        int = 10
-	etcHostFileName     = "/etc/hosts"
-	tmpHostFileName     = "/tmp/etchosts"
-	resolvFileName      = "/etc/resolv.conf"
+	minTTLSec              int = 30
+	maxTTLSec              int = 3600
+	extraSec               int = 10
+	etcHostFileName            = "/etc/hosts"
+	tmpHostFileName            = "/tmp/etchosts"
+	resolvFileName             = "/etc/resolv.conf"
+	dnsMaxParallelRequests     = 5
+	dnsTimeout                 = 30 * time.Second
 )
 
 // go routine for dns query to the controller
@@ -70,6 +75,99 @@ func (n *nim) queryControllerDNS() {
 	}
 }
 
+func (n *nim) resolveWithSrcIP(domain string, dnsServerIP net.IP, srcIP net.IP) net.IP {
+	sourceUdpAddr := net.UDPAddr{IP: srcIP}
+	dialer := net.Dialer{LocalAddr: &sourceUdpAddr}
+	dnsClient := dns.Client{Dialer: &dialer}
+	msg := dns.Msg{}
+	if domain[len(domain)-1] != '.' {
+		domain = domain + "."
+	}
+	msg.SetQuestion(domain, dns.TypeA)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(dnsTimeout))
+	defer cancel()
+	reply, _, err := dnsClient.ExchangeContext(ctx, &msg, net.JoinHostPort(dnsServerIP.String(), "53"))
+	if err != nil {
+		n.Log.Tracef("dns exchange failed: %v", err)
+		return nil
+	}
+	if len(reply.Answer) > 0 {
+		for _, answer := range reply.Answer {
+			if aRecord, ok := answer.(*dns.A); ok {
+				return aRecord.A
+			}
+		}
+	}
+	return nil
+}
+
+func (n *nim) resolveWithPorts(domain string) net.IP {
+	return n.resolveWithPortsLambda(domain, n.resolveWithSrcIP)
+}
+
+func (n *nim) resolveWithPortsLambda(domain string, resolve func(string, net.IP, net.IP) net.IP) net.IP {
+	work := make(chan struct{}, dnsMaxParallelRequests)
+	resolvedIPsChan := make(chan net.IP)
+	var wg sync.WaitGroup
+	for _, port := range n.dpcManager.GetDNS().Ports {
+		if port.Cost > 0 {
+			continue
+		}
+
+		var srcIPs []net.IP
+		for _, addrInfo := range port.AddrInfoList {
+			srcIPs = append(srcIPs, addrInfo.Addr)
+		}
+
+		ifIndex, exist, err := n.networkMonitor.GetInterfaceIndex(port.IfName)
+		if !exist {
+			continue
+		}
+		if err != nil {
+			n.Log.Warnf("converting ifName to ifIndex failed: %+v", err)
+			continue
+		}
+
+		dnsInfo, err := n.networkMonitor.GetInterfaceDNSInfo(ifIndex)
+		if err != nil {
+			n.Log.Warnf("get interface dns info for %s failed: %+v", port.IfName, err)
+			continue
+		}
+
+		for _, dnsIP := range dnsInfo.DNSServers {
+			for _, srcIP := range srcIPs {
+				wg.Add(1)
+				dnsIPCopy := make(net.IP, len(dnsIP))
+				copy(dnsIPCopy, dnsIP)
+				srcIPCopy := make(net.IP, len(srcIP))
+				copy(srcIPCopy, srcIP)
+				go func(dnsIP, srcIP net.IP) {
+					work <- struct{}{}
+					ip := resolve(domain, dnsIP, srcIP)
+					if ip != nil {
+						resolvedIPsChan <- ip
+					}
+					<-work
+					wg.Done()
+				}(dnsIPCopy, srcIPCopy)
+			}
+		}
+	}
+
+	wgChan := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(wgChan)
+	}()
+
+	select {
+	case <-wgChan:
+		return nil
+	case ip := <-resolvedIPsChan:
+		return ip
+	}
+}
+
 // periodical cache the controller DNS resolution into /etc/hosts file
 // it returns the cached ip string, and TTL setting from the server
 func (n *nim) controllerDNSCache(etchosts, controllerServer []byte, ipaddrCached string) (string, int) {
@@ -115,9 +213,9 @@ func (n *nim) controllerDNSCache(etchosts, controllerServer []byte, ipaddrCached
 	var ttlSec int
 
 	domains := []string{string(controllerServer)}
-	dtypes := []dns.QueryType{dns.TypeA}
+	dtypes := []oldDns.QueryType{oldDns.TypeA}
 	for _, nameServer := range nameServers {
-		resolver := dns.NewResolver(nameServer)
+		resolver := oldDns.NewResolver(nameServer)
 		resolver.Targets(domains...).Types(dtypes...)
 
 		res := resolver.Lookup()
