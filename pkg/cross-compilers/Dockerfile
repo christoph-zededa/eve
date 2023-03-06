@@ -37,7 +37,7 @@ ENV allTargets="riscv64 aarch64 x86_64"
 # hadolint ignore=SC2068
 RUN for patch in /home/builder/patches/*patch ; do patch -p1 < "$patch" ; done && \
     for target in ${allTargets}; do \
-        [ "${target}" = "${EVE_BUILD_ARCH}" ] || sh -x ./scripts/bootstrap.sh "${target}"; \
+        [ "${target}" = "${BUILD_ARCH}" ] || sh -x ./scripts/bootstrap.sh "${target}"; \
     done && \
     rm -rf /home/builder/packages/main/"${EVE_BUILD_ARCH}"/gcc-pass2* && \
     cp -r /home/builder/packages/main/"${EVE_BUILD_ARCH}" /packages/
