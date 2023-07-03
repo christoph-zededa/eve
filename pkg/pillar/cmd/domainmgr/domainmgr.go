@@ -1851,8 +1851,10 @@ func doInactivate(ctx *domainContext, status *types.DomainStatus, impatient bool
 			status.DomainId = 0
 		}
 	}
+	doCleanup(ctx, status)
+}
 
-	// Cleanup
+func doCleanup(ctx *domainContext, status *types.DomainStatus) {
 	if err := hyper.Task(status).Cleanup(status.DomainName); err != nil {
 		log.Errorf("failed to cleanup domain: %s (%v)", status.DomainName, err)
 	}
@@ -1879,6 +1881,7 @@ func doInactivate(ctx *domainContext, status *types.DomainStatus, impatient bool
 			log.Errorln("unmountContainers failed after retry with force flag")
 		}
 	}
+
 	if ctx.cpuPinningSupported {
 		if status.VmConfig.CPUsPinned {
 			if err := ctx.cpuAllocator.Free(status.UUIDandVersion.UUID); err != nil {
@@ -1893,7 +1896,7 @@ func doInactivate(ctx *domainContext, status *types.DomainStatus, impatient bool
 	status.IoAdapterList = nil
 	publishDomainStatus(ctx, status)
 
-	log.Functionf("doInactivate(%v) done for %s",
+	log.Functionf("doClennup(%v) done for %s",
 		status.UUIDandVersion, status.DisplayName)
 }
 
@@ -2370,6 +2373,8 @@ func handleDelete(ctx *domainContext, key string, status *types.DomainStatus) {
 
 	if status.Activated {
 		doInactivate(ctx, status, true)
+	} else if status.HasError() {
+		doCleanup(ctx, status)
 	}
 
 	// Check if the USB controller became available for dom0
