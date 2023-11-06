@@ -75,7 +75,9 @@ COPY --from=build /usr/share/ModemManager /usr/share/ModemManager
 
 COPY --from=build /etc/dbus-1 /etc/dbus-1
 COPY --from=build /usr/share/dbus-1 /usr/share/dbus-1
-COPY --from=build /lib/udev/rules.d /lib/udev/rules.d
+#COPY --from=build /lib/udev/rules.d /lib/udev/rules.d
+RUN mkdir -vp /lib/udev/rules.d
+COPY udev-rules/* /lib/udev/rules.d/
 
 COPY mm-init.sh /usr/bin/mm-init.sh
 CMD ["/usr/bin/mm-init.sh"]
