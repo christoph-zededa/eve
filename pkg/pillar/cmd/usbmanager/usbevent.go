@@ -34,7 +34,7 @@ func (uc *usbmanagerController) listenUSBPorts() {
 	go func() {
 		for _, ud := range walkUSBPorts() {
 			usbdevices[ud.ueventFilePath] = ud
-			log.Tracef("usb device from walking: %+v", ud)
+			log.Warnf("usb device from walking: %+v", ud)
 			uc.addUSBDevice(*ud)
 		}
 
@@ -52,6 +52,7 @@ func (uc *usbmanagerController) listenUSBPorts() {
 
 			ueventFilePath := filepath.Join(sysFSPath, evt.Devpath, "uevent")
 			ud := ueventFile2usbDevice(ueventFilePath)
+			log.Warnf("new usb device %+v from %s (%+v)", ud, ueventFilePath, evt)
 			if ud == nil {
 				ud = usbdevices[ueventFilePath]
 			}

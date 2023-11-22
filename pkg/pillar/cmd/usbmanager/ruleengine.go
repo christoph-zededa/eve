@@ -46,6 +46,7 @@ func (re *ruleEngine) apply(ud usbdevice) *virtualmachine {
 
 	for _, r := range re.rules {
 		if r.evaluate(ud) == passthroughForbid {
+			log.Warnf("rule %v forbid passthrough of %+v", r, ud)
 			return nil
 		}
 		if r.evaluate(ud) == passthroughDo {
@@ -55,6 +56,7 @@ func (re *ruleEngine) apply(ud usbdevice) *virtualmachine {
 		}
 	}
 
+	log.Warnf("passing through %v to %s because of %v", ud, maxRule.virtualMachine(), maxRule)
 	return maxRule.virtualMachine()
 }
 

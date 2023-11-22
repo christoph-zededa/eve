@@ -65,7 +65,7 @@ func (uc *usbmanagerController) disconnectUSBDeviceFromQemuIdempotent(up usbpass
 }
 
 func (uc *usbmanagerController) connectUSBDeviceToQemuImpl(up usbpassthrough) {
-	log.Tracef("connect usb passthrough %+v to %s\n", up, up.vm.qmpSocketPath)
+	log.Warnf("connect usb passthrough %+v to %s\n", up, up.vm.qmpSocketPath)
 
 	err := hypervisor.QmpExecDeviceAdd(up.vm.qmpSocketPath, up.usbdevice.qemuDeviceName(), up.usbdevice.busnum, up.usbdevice.devnum)
 	if err != nil {
@@ -74,7 +74,7 @@ func (uc *usbmanagerController) connectUSBDeviceToQemuImpl(up usbpassthrough) {
 }
 
 func (uc *usbmanagerController) disconnectUSBDeviceFromQemuImpl(up usbpassthrough) {
-	log.Tracef("disconnect usb passthrough %+v to %s\n", up, up.vm.qmpSocketPath)
+	log.Warnf("disconnect usb passthrough %+v to %s\n", up, up.vm.qmpSocketPath)
 
 	err := hypervisor.QmpExecDeviceDelete(up.vm.qmpSocketPath, up.usbdevice.qemuDeviceName())
 	if err != nil {
@@ -88,7 +88,7 @@ func (uc *usbmanagerController) addUSBDevice(ud usbdevice) {
 
 	uc.usbpassthroughs.addUsbdevice(&ud)
 	vm := uc.ruleEngine.apply(ud)
-	log.Tracef("add usb device %+v vm=%v; rules: %s\n", ud, vm, uc.ruleEngine.String())
+	log.Warnf("add usb device %+v vm=%v; rules: %s\n", ud, vm, uc.ruleEngine.String())
 	if vm != nil {
 		uc.connectUSBDeviceToQemuIdempotent(usbpassthrough{
 			usbdevice: &ud,
@@ -101,7 +101,7 @@ func (uc *usbmanagerController) removeUSBDevice(ud usbdevice) {
 	uc.Lock()
 	defer uc.Unlock()
 	vm := uc.ruleEngine.apply(ud)
-	log.Tracef("remove usb device %+v vm=%v; rules: %s\n", ud, vm, uc.ruleEngine.String())
+	log.Warnf("remove usb device %+v vm=%v; rules: %s\n", ud, vm, uc.ruleEngine.String())
 	if vm != nil {
 		uc.disconnectUSBDeviceFromQemuIdempotent(usbpassthrough{
 			usbdevice: &ud,
@@ -115,7 +115,7 @@ func (uc *usbmanagerController) removeUSBDevice(ud usbdevice) {
 func (uc *usbmanagerController) addVirtualmachine(vm virtualmachine) {
 	uc.Lock()
 	defer uc.Unlock()
-	log.Tracef("add vm %+v", vm)
+	log.Warnf("add vm %+v", vm)
 	uc.usbpassthroughs.addVM(&vm)
 
 	// add rules
@@ -201,7 +201,7 @@ func (uc *usbmanagerController) removeIOBundle(ioBundle types.IoBundle) {
 func (uc *usbmanagerController) addIOBundle(ioBundle types.IoBundle) {
 	uc.Lock()
 	defer uc.Unlock()
-	log.Tracef("add iobundle %s: %s/%s\n", ioBundle.Phylabel, ioBundle.UsbAddr, ioBundle.PciLong)
+	log.Warnf("add iobundle %s: %s/%s\n", ioBundle.Phylabel, ioBundle.UsbAddr, ioBundle.PciLong)
 	uc.usbpassthroughs.addIoBundle(&ioBundle)
 
 	pr := ioBundle2PassthroughRule(ioBundle)
@@ -257,7 +257,7 @@ func ioBundle2PassthroughRule(adapter types.IoBundle) passthroughRule {
 
 		pr = &usb
 	} else {
-		log.Tracef("cannot create rule out of adapter %+v\n", adapter)
+		log.Warnf("cannot create rule out of adapter %+v\n", adapter)
 		pr = nil
 	}
 

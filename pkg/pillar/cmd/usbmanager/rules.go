@@ -163,7 +163,7 @@ func (uhfpr *usbHubForbidPassthroughRule) priority() uint8 {
 
 func (uhfpr *usbHubForbidPassthroughRule) evaluate(ud usbdevice) passthroughAction {
 	if strings.HasPrefix(ud.devicetype, "9/") {
-		log.Tracef("usb hub forwarding is forbidden - %+v", ud)
+		log.Warnf("usb hub forwarding is forbidden - %+v", ud)
 		return passthroughForbid
 	}
 
@@ -196,7 +196,7 @@ func (unafpr *usbNetworkAdapterForbidPassthroughRule) evaluate(ud usbdevice) pas
 	ueventDirname := filepath.Dir(ud.ueventFilePath) + "/"
 	for _, path := range netDevPaths {
 		if strings.HasPrefix(path, ueventDirname) {
-			log.Tracef("usb network adapter forwarding is forbidden - %+v", ud)
+			log.Warnf("usb network adapter forwarding is forbidden - %+v", ud)
 			return passthroughForbid
 		}
 	}

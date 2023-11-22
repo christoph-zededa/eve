@@ -93,6 +93,8 @@ func (usbCtx *usbmanagerContext) handleDomainStatusModify(_ interface{}, _ strin
 
 	_, isRunningDomain := usbCtx.runningDomains[newstatus.DomainName]
 
+	log.Warnf("isRunning: %v newStatus: %+v", isRunningDomain, newstatus)
+
 	if newstatus.State == types.RUNNING && !isRunningDomain {
 		usbCtx.runningDomains[newstatus.DomainName] = struct{}{}
 		usbCtx.handleDomainStatusRunning(newstatus)
@@ -116,14 +118,14 @@ func (usbCtx *usbmanagerContext) handleDomainStatusRunning(status types.DomainSt
 	qmp := hypervisor.GetQmpExecutorSocket(status.DomainName)
 	vm := newVirtualmachine(qmp, nil)
 
-	log.Tracef("display name: %+v\n", status.DisplayName)
+	log.Warnf("display: %+v\n", status)
 	for _, io := range status.IoAdapterList {
 		vm.addAdapter(io.Name)
 	}
 
 	usbCtx.controller.addVirtualmachine(vm)
 	usbCtx.controller.Lock()
-	log.Tracef("rule engine: %s\n", usbCtx.controller.ruleEngine)
+	log.Warnf("rule engine: %s\n", usbCtx.controller.ruleEngine)
 	usbCtx.controller.Unlock()
 }
 
@@ -135,7 +137,7 @@ func (usbCtx *usbmanagerContext) handleDomainStatusDelete(_ interface{}, _ strin
 		log.Warnf("status not OK, got %+v type %T\n", statusArg, statusArg)
 		return
 	}
-	log.Tracef("display name: %+v\n", status.DisplayName)
+	log.Warnf("display: %+v\n", status)
 
 	usbCtx.handleDomainStatusNotRunning(status)
 }
@@ -149,7 +151,7 @@ func (usbCtx *usbmanagerContext) handleDomainStatusCreate(_ interface{}, _ strin
 		return
 	}
 
-	log.Tracef("display name: %+v\n", status.DisplayName)
+	log.Warnf("display: %+v\n", status)
 
 	if status.State == types.RUNNING {
 		usbCtx.handleDomainStatusRunning(status)
@@ -164,7 +166,10 @@ func (usbCtx *usbmanagerContext) handleAssignableAdaptersCreate(_ interface{}, _
 		return
 	}
 
+	log.Warnf("assignableAdapters: %+v", assignableAdapters)
+
 	for _, adapter := range assignableAdapters.IoBundleList {
+		log.Warnf("assignableAdapters adapter: %+v", adapter)
 		usbCtx.controller.addIOBundle(adapter)
 	}
 }
@@ -183,6 +188,7 @@ func (usbCtx *usbmanagerContext) handleAssignableAdaptersModify(_ interface{}, _
 		return
 	}
 
+	log.Warnf("oldAssignableAdapters: %+v newAssignableAdapters: %+v", oldAssignableAdapters, newAssignableAdapters)
 	oldAssignableAdaptersMap := make(map[string]types.IoBundle)
 
 	for _, adapter := range oldAssignableAdapters.IoBundleList {
@@ -218,6 +224,7 @@ func (usbCtx *usbmanagerContext) handleAssignableAdaptersDelete(_ interface{}, _
 		log.Warnf("status not OK, got %+v type %T\n", statusArg, statusArg)
 		return
 	}
+	log.Warnf("assignableAdapters: %+v", assignableAdapters)
 
 	for _, adapter := range assignableAdapters.IoBundleList {
 		usbCtx.controller.removeIOBundle(adapter)
