@@ -126,3 +126,9 @@ fmt-check-details:
 
 vet:
 	go vet $(TAGS) ./...
+
+ubuntu: Dockerfile.ubuntu
+	grep -q 1 /proc/sys/kernel/perf_event_paranoid
+	time docker build --build-arg UID=${shell id -u} --build-arg GID=${shell id -g} -f Dockerfile.ubuntu -t pillar-ubuntu .
+	docker run -e TERM=${TERM} --cap-add=SYS_PTRACE --cap-add=SYS_ADMIN --privileged --security-opt seccomp=unconfined -v $(shell pwd):/src -it pillar-ubuntu /bin/bash
+	#docker run --privileged -v $(shell pwd):/src -it pillar-ubuntu /bin/bash
