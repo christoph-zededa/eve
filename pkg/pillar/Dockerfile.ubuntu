@@ -1,0 +1,82 @@
+FROM ubuntu:latest
+
+ENV DEBIAN_FRONTEND noninteractive
+
+RUN apt-get update
+RUN apt-get -y dist-upgrade
+
+RUN apt-get -y install apt-file
+RUN apt-file update
+
+RUN apt-get -y install build-essential
+RUN apt-get -y install git
+RUN apt-get -y install cmake
+RUN apt-get -y install pkg-config
+RUN apt-get -y install python3-pexpect
+RUN apt-get -y install gdb
+RUN apt-get -y install libcapnp-dev capnproto
+RUN apt-get -y install zlib1g-dev
+RUN apt-get -y install vim
+RUN apt-get -y install autoconf
+RUN apt-get -y install libtool
+RUN apt-get -y install udev
+RUN apt-get -y install uuid-dev
+RUN apt-get -y install libblkid-dev
+RUN apt-get -y install libssl-dev
+
+ENV ZFS_VERSION=2.2.2
+ENV ZFS_COMMIT=zfs-${ZFS_VERSION}
+ENV ZFS_REPO=https://github.com/openzfs/zfs
+WORKDIR /usr/src
+ADD ${ZFS_REPO}/tarball/${ZFS_COMMIT}/ zfs.tgz
+RUN tar -zxvf zfs.tgz
+WORKDIR /usr/src/openzfs-zfs-8bec727
+RUN ./autogen.sh
+RUN ./configure \
+    --prefix=/usr \
+    --with-tirpc \
+    --sysconfdir=/etc \
+    --mandir=/usr/share/man \
+    --infodir=/usr/share/info \
+    --localstatedir=/var \
+    --with-config=user \
+    --with-udevdir=/lib/udev \
+    --disable-systemd \
+    --disable-static
+RUN ./scripts/make_gitrev.sh
+RUN make -j "$(getconf _NPROCESSORS_ONLN)"
+RUN make install
+
+WORKDIR /usr/src
+RUN git clone https://github.com/rr-debugger/rr.git --branch 5.7.0 --single-branch
+RUN mkdir -vp /usr/src/rr/build
+WORKDIR /usr/src/rr/build
+RUN cmake -DCMAKE_BUILD_TYPE=Release -Ddisable32bit=ON ../
+RUN make -j $(nproc)
+RUN make install
+
+RUN git clone https://go.googlesource.com/go /usr/src/go1.4 --branch release-branch.go1.4 --single-branch
+WORKDIR /usr/src/go1.4/src
+RUN CGO_ENABLED=0 ./make.bash
+
+RUN git clone https://go.googlesource.com/go /usr/src/go1.17.3 --branch go1.17.3 --single-branch
+WORKDIR /usr/src/go1.17.3/src
+ENV GOROOT_BOOTSTRAP=/usr/src/go1.4/
+RUN ./make.bash
+RUN git clone https://go.googlesource.com/go /usr/src/go1.21.6 --branch go1.21.6 --single-branch
+WORKDIR /usr/src/go1.21.6/src
+ENV GOROOT_BOOTSTRAP=/usr/src/go1.17.3/
+RUN ./all.bash
+
+RUN git clone https://go.googlesource.com/go /usr/src/go1.22.1 --branch go1.22.1 --single-branch
+WORKDIR /usr/src/go1.22.1/src
+ENV GOROOT_BOOTSTRAP=/usr/src/go1.21.6/
+RUN ./all.bash
+
+ENV PATH="${PATH}:/usr/src/go1.22.1/bin:/root/go/bin"
+
+RUN go install github.com/go-delve/delve/cmd/dlv@latest
+RUN go install go.uber.org/nilaway/cmd/nilaway@latest
+
+ENV DEBIAN_FRONTEND noninteractive
+WORKDIR /src
