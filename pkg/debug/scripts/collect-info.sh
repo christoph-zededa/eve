@@ -4,9 +4,6 @@
 # helps to debug and resolve EVE issues.
 #
 
-# Script version, don't forget to bump up once something is changed
-
-VERSION=18
 # Add required packages here, it will be passed to "apk add".
 # Once something added here don't forget to add the same package
 # to the Dockerfile ('ENV PKGS' line) of the debug container,
@@ -15,14 +12,16 @@ VERSION=18
 # still attempt to install those packages.
 PKG_DEPS="procps tar dmidecode iptables dhcpcd"
 
+COLLECT_INFO_HASH=$(md5sum "$0" | cut -d " " -f1)
 DATE=$(date "+%Y-%m-%d-%H-%M-%S")
-INFO_DIR="eve-info-v$VERSION-$DATE"
+INFO_DIR="eve-info-$COLLECT_INFO_HASH-$DATE"
 TARBALL_FILE="/persist/$INFO_DIR.tar.gz"
 SCRIPT_DIR=$(dirname "$(readlink -f "$0")")
 
 READ_LOGS_DEV=
 READ_LOGS_APP=
 TAR_WHOLE_SYS=
+
 
 usage()
 {
@@ -43,7 +42,7 @@ while getopts "vhsa:d" o; do
             usage
             ;;
         v)
-            echo "v$VERSION"
+            echo "collect-info.sh: $COLLECT_INFO_HASH"
             exit 0
             ;;
         a)
@@ -209,6 +208,12 @@ collect_network_info()
     echo "- done network info"
 }
 
+collect_collect_info_info()
+{
+    echo "- collect-info.sh info"
+    cp $(realpath "$0") > "$DIR/collect-info.sh"
+    echo "- done collect-info.sh info"
+}
 collect_pillar_info()
 {
     echo "- pillar backtraces"
