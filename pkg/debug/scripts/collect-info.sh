@@ -209,7 +209,7 @@ collect_network_info()
     echo "- done network info"
 }
 
-collect_pillar_backtraces()
+collect_pillar_info()
 {
     echo "- pillar backtraces"
     logread -f > "$DIR/pillar-backtraces" &
@@ -235,6 +235,10 @@ collect_pillar_backtraces()
     kill $pid
 
     echo "- done pillar backtraces"
+
+    echo "- pillar module versions"
+    eve pillar-version > "$DIR/pillar-module-versions"
+    echo "- done pillar module versions"
 }
 collect_zfs_info()
 {
@@ -399,7 +403,7 @@ cp -r /sys/fs/cgroup/memory "$DIR/sys-fs-cgroup-memory" >/dev/null 2>&1
 collect_network_info
 
 # Pillar part
-collect_pillar_backtraces
+collect_pillar_info
 
 # ZFS part
 collect_zfs_info
