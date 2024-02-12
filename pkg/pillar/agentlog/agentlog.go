@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
+	"runtime/debug"
 	dbg "runtime/debug"
 	"sort"
 	"strings"
@@ -246,7 +247,8 @@ func listenDebug(log *base.LogObject, stacksDumpFileName, memDumpFileName string
 	    <a href="debug/pprof/">pprof methods</a></br></br>
 	    To create a flamegraph, do: go tool pprof -raw -output=cpu.txt 'http://localhost:6543/debug/pprof/profile?seconds=5';</br>
 	    stackcollapse-go.pl cpu.txt | flamegraph.pl --width 4096 > flame.svg</br>
-	    (both scripts can be found <a href="https://github.com/brendangregg/FlameGraph">here</a>)
+	    (both scripts can be found <a href="https://github.com/brendangregg/FlameGraph">here</a>)</br>
+        <a href="/version">See pillar module versions</br>
 		`
 
 	mux.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -256,6 +258,28 @@ func listenDebug(log *base.LogObject, stacksDumpFileName, memDumpFileName string
 	mux.Handle("/index.html", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
 		writeOrLog(log, w, info)
+	}))
+
+	mux.Handle("/version", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		info, ok := debug.ReadBuildInfo()
+		if !ok {
+			http.Error(w, "No version information available", http.StatusInternalServerError)
+			return
+		}
+		response := fmt.Sprintf("Build Info Settings:\n")
+		for _, buildSetting := range info.Settings {
+			response += fmt.Sprintf("\t%s: %s\n", buildSetting.Key, buildSetting.Value)
+		}
+
+		response += fmt.Sprintf("\nModules Info:\n")
+		for _, dep := range append(info.Deps, &info.Main) {
+			response += fmt.Sprintf("\t%s - %s\n", dep.Path, dep.Version)
+			if dep.Replace != nil {
+				response += fmt.Sprintf("\t\t=> %s - %s\n", dep.Path, dep.Version)
+			}
+		}
+		w.Header().Set("Content-Type", "text/plain")
+		writeOrLog(log, w, response)
 	}))
 
 	mux.Handle("/debug/pprof/", http.HandlerFunc(pprof.Index))

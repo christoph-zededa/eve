@@ -29,6 +29,7 @@ Welcome to EVE!
             firewall drop
             verbose on|off
             version
+            pillar-version
             uuid
             hv
 __EOT__
@@ -115,6 +116,10 @@ dump_stacks() {
 
 dump_mem() {
     http_debug_request "/dump/memory"
+}
+
+pillar_version() {
+    http_debug_request "/version"
 }
 
 is_in_debug_service() {
@@ -243,6 +248,9 @@ __EOT__
  dump-memory)
           dump_mem
           echo "Your information can be found in logread"
+          ;;
+ pillar-version)
+          pillar_version
           ;;
  verbose) # first lets find our piping process
           for PIPE in $(pgrep cat); do
