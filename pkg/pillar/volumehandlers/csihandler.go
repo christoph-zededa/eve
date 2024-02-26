@@ -85,10 +85,10 @@ func (handler *volumeHandlerCSI) CreateVolume() (string, error) {
 	// removing of partially created objects must be done inside caller
 	createContext, createCancel := context.WithCancel(createContext)
 
-	done := make(chan bool, 1)
+	done := make(chan struct{}, 1)
 
 	defer func() {
-		done <- true
+		done <- struct{}{}
 	}()
 
 	go func() {
@@ -295,11 +295,10 @@ func (handler *volumeHandlerCSI) CopyImgDirToRawImg(ctx context.Context, log *ba
 
 	log.Noticef("%s args %v", imageToQcowScript, args)
 
-	output, err := base.Exec(log, imageToQcowScript, args...).WithContext(ctx).WithUnlimitedTimeout(432000 * time.Second).CombinedOutput()
+	output, err := base.Exec(log, imageToQcowScript, args...).WithContext(ctx).WithUnlimitedTimeout(120 * time.Hour).CombinedOutput()
 
 	if err != nil {
-		errStr := fmt.Sprintf("CopyImgDirToRawImg: Failed to create raw image file  %s: %v", output, err)
-		return errors.New(errStr)
+		return fmt.Errorf("CopyImgDirToRawImg: Failed to create raw image file  %s: %w", output, err)
 	}
 
 	return nil

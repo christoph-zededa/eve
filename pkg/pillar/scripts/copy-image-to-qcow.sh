@@ -16,23 +16,23 @@ SRCDIR=$1
 DESTFILE=$2
 MOUNTDIR=/tmp/dest.$$
 
-if [ ! -d $SRCDIR ]; then
+if [ ! -d "$SRCDIR" ]; then
    echo "$SRCDIR does not exist"
    exit 1
 fi
 
-if [ -f $DESTFILE ]; then
+if [ -f "$DESTFILE" ]; then
    echo "$DESTFILE already exists"
    exit 1
 fi
 
-SIZEMB=`du -sm $SRCDIR/ | awk '{print $1}'`
+SIZEMB=$(du -sm "$SRCDIR"/ | awk '{print $1}')
 #This is a workaround for now we allocate twice the size of SRCDIR, somehow rsync at the end of script does not like the
 #exact size allocated for qcow2, it expects little bit more, may be for some metadata.
 #It does not cost us anything allocating more space here since its thin allocated.
 SIZEMB=$((SIZEMB * 2))
-/usr/bin/qemu-img create -o preallocation=off -f qcow2 $DESTFILE $SIZEMB"M"
-qemu-img info -U --output=json $DESTFILE
+/usr/bin/qemu-img create -o preallocation=off -f qcow2 "$DESTFILE" "$SIZEMB""M"
+qemu-img info -U --output=json "$DESTFILE"
 #Get an exclusive lock so that no one else mounts the /dev/nbd10
 LOCK_FILE="/run/create-image.lock"
 WAIT_INTERVAL=5
@@ -49,29 +49,28 @@ done
 
 # Set up ndb to mount qcow file.
 modprobe nbd max_part=8
-/usr/bin/qemu-nbd --connect=/dev/nbd10 $DESTFILE
+/usr/bin/qemu-nbd --connect=/dev/nbd10 "$DESTFILE"
 sleep 10
 mke2fs -t ext4 /dev/nbd10
-qemu-img info -U --output=json $DESTFILE
-mkdir -p $MOUNTDIR
-mount -t ext4 /dev/nbd10 $MOUNTDIR
+qemu-img info -U --output=json "$DESTFILE"
+mkdir -p "$MOUNTDIR"
+mount -t ext4 /dev/nbd10 "$MOUNTDIR"
 failed=0
 
 echo "Starting rsync"
 #Use rsync to keep source permissions and ownership
-rsync -arl  $SRCDIR/* $MOUNTDIR
-if [ $? -ne 0 ]; then
+if ! rsync -arl  "$SRCDIR"/* "$MOUNTDIR"; then
 failed=1
 fi
-umount $MOUNTDIR
+umount "$MOUNTDIR"
 qemu-nbd --disconnect /dev/nbd10
-rm -rf $MOUNTDIR
+rm -rf "$MOUNTDIR"
 flock -u 200
 if [ "$failed" = "1" ]; then
 echo "Failed to copy to qcow2 file $DESTFILE, deleting it"
 exit 1
 fi
 echo "rsync succeeded"
-qemu-img info -U --output=json $DESTFILE
+qemu-img info -U --output=json "$DESTFILE"
 echo "$(date -Ins -u) Converted $SRCDIR to $DESTFILE"
 exit 0

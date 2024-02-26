@@ -770,9 +770,12 @@ func (c *containerdCAS) PrepareContainerRootDir(rootPath, reference, rootBlobSha
 		}
 
 		// Userid and GID are same
-		ug := fmt.Sprintf("%d %d", 0, 0)
+		ug := "0 0"
 		if user != "" {
-			uid, _ := strconv.Atoi(user)
+			uid, converr := strconv.Atoi(user)
+			if converr != nil {
+				return converr
+			}
 			ug = fmt.Sprintf("%d %d", uid, uid)
 		}
 		if err := os.WriteFile(filepath.Join(rootPath, "ug"),

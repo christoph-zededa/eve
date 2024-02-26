@@ -142,7 +142,7 @@ type VolumeStatus struct {
 	WWN                     string
 	Target                  zconfig.Target
 	CustomMeta              string
-	IsAppImage              bool // Does this volume contain app image
+	IsAppImage              bool // Is this an app image ?
 
 	ErrorAndTimeWithSource
 }
