@@ -392,7 +392,7 @@ currentversion:
 
 test: $(LINUXKIT) test-images-patches | $(DIST)
 	@echo Running tests on $(GOMODULE)
-	$(QUIET)$(DOCKER_GO) "gotestsum --jsonfile $(DOCKER_DIST)/results.json --junitfile $(DOCKER_DIST)/results.xml --raw-command -- go test -coverprofile=coverage.txt -covermode=atomic -race -json ./..." $(GOTREE) $(GOMODULE)
+	$(QUIET)$(DOCKER_GO) "gotestsum --jsonfile $(DOCKER_DIST)/results.json --junitfile $(DOCKER_DIST)/results.xml --raw-command -- go test -tags kubevirt -coverprofile=coverage.txt -covermode=atomic -race -json ./..." $(GOTREE) $(GOMODULE)
 	$(QUIET)$(DOCKER_GO) "cd \"$(GOTREE)\"; ../../tools/fuzz_test.sh" $(GOTREE) $(GOMODULE)
 	$(QUIET): $@: Succeeded
 
