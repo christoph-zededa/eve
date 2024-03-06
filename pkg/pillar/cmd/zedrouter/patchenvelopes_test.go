@@ -78,10 +78,17 @@ func TestPatchEnvelopes(t *testing.T) {
 		},
 	}
 
+	updateVolumeStatusDone := make(chan struct{})
+	updateContentTreeDone := make(chan struct{})
 	peStoreMutex := sync.Mutex{}
-	go func() {
+	go func() { // AAA
 		peStoreMutex.Lock()
-		defer peStoreMutex.Unlock()
+		t.Log("AAA is holding lock")
+		defer func() {
+			peStoreMutex.Unlock()
+			t.Log("AAA is giving up lock")
+			updateVolumeStatusDone <- struct{}{}
+		}()
 
 		for _, vs := range volumeStatuses {
 			peStore.UpdateVolumeStatus(vs, false)
@@ -89,9 +96,14 @@ func TestPatchEnvelopes(t *testing.T) {
 		}
 	}()
 
-	go func() {
+	go func() { // BBB
 		peStoreMutex.Lock()
-		defer peStoreMutex.Unlock()
+		t.Log("BBB is holding lock")
+		defer func() {
+			peStoreMutex.Unlock()
+			t.Log("BBB is giving up lock")
+			updateContentTreeDone <- struct{}{}
+		}()
 
 		for _, ct := range contentStatuses {
 			peStore.UpdateContentTree(ct, false)
@@ -100,9 +112,15 @@ func TestPatchEnvelopes(t *testing.T) {
 		}
 	}()
 
-	go func() {
+	go func() { // CCC
+		//		<-updateContentTreeDone
+		//		<-updateVolumeStatusDone
 		peStoreMutex.Lock()
-		defer peStoreMutex.Unlock()
+		t.Log("CCC is holding lock")
+		defer func() {
+			peStoreMutex.Unlock()
+			t.Log("CCC is giving up lock")
+		}()
 
 		peStore.UpdateEnvelopes(peInfo)
 		peStore.UpdateStateNotificationCh() <- struct{}{}
@@ -118,7 +136,10 @@ func TestPatchEnvelopes(t *testing.T) {
 			// one which moves VolumeRef to BinaryBlob (envelopes[0].BinaryBlobs >= 2
 			// one which adds SHA to BinaryBlob created from VolumeRef (finding blob and comparing SHA)
 			envelopes := peStore.Get(app1UUID).Envelopes
+			t.Logf("got %d envelopes", len(envelopes))
+			t.Logf("pes to update: %+v", peStore.GetEnvelopesToUpdate().Keys())
 			if len(envelopes) > 0 && len(envelopes[0].BinaryBlobs) >= 2 {
+				t.Logf("envelopes[0].BinaryBlobs: %+v", envelopes[0].BinaryBlobs)
 				volBlobIdx := types.CompletedBinaryBlobIdxByName(envelopes[0].BinaryBlobs, "VolTestFileName")
 				if volBlobIdx != -1 && envelopes[0].BinaryBlobs[volBlobIdx].FileSha != "" {
 					close(finishedProcessing)
@@ -129,12 +150,13 @@ func TestPatchEnvelopes(t *testing.T) {
 		}
 	}()
 
-	deadline := 1 * time.Minute
+	deadline := 30 * time.Second
 	g.Eventually(func() bool {
 		select {
 		case <-finishedProcessing:
 			return true
 		case <-time.After(deadline):
+			//t.Logf("pes to update: %+v", peStore.GetEnvelopesToUpdate().Keys())
 			return false
 		}
 	}, deadline, time.Second).Should(gomega.BeTrue())

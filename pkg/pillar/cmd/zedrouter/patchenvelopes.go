@@ -61,6 +61,10 @@ type PatchEnvelopes struct {
 	pubPatchEnvelopeState pubsub.Publication
 }
 
+func (pes *PatchEnvelopes) GetEnvelopesToUpdate() *generics.LockedMap[uuid.UUID, bool] {
+	return pes.envelopesToUpdate
+}
+
 // UpdateStateNotificationCh return update channel to send notifications to update currentState
 func (pes *PatchEnvelopes) UpdateStateNotificationCh() chan<- struct{} {
 	return pes.updateStateNotificationCh
@@ -110,6 +114,7 @@ func (pes *PatchEnvelopes) processStateUpdate() {
 }
 
 func (pes *PatchEnvelopes) updateState() {
+	fmt.Printf(">>>>>111 updating state\n")
 	keys := pes.envelopesToDelete.Keys()
 	for _, k := range keys {
 		if toDelete, _ := pes.envelopesToDelete.Load(k); toDelete {
@@ -122,8 +127,10 @@ func (pes *PatchEnvelopes) updateState() {
 	}
 
 	keys = pes.envelopesToUpdate.Keys()
+	fmt.Printf(">>>>>222 %+v\n", keys)
 	for _, peUUID := range keys {
 		if needsUpdate, _ := pes.envelopesToUpdate.Load(peUUID); needsUpdate {
+			fmt.Printf(">>>>>333 %s needs update\n", peUUID)
 			if peInfo, ok := pes.envelopes.Load(peUUID); ok {
 				pes.currentState.Store(peUUID, peInfo)
 
@@ -155,7 +162,7 @@ func (pes *PatchEnvelopes) updateState() {
 					pe.State = peState
 					pes.currentState.Store(peUUID, pe)
 					pes.publishPatchEnvelopeInfo(&pe)
-					pes.envelopesToUpdate.Store(peUUID, false)
+					pes.envelopesToUpdate.Store(peUUID, true)
 
 				} else {
 					pes.log.Errorf("No entry in currentState for %v to update", peUUID)
