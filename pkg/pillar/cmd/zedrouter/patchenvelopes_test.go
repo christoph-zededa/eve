@@ -81,12 +81,10 @@ func TestPatchEnvelopes(t *testing.T) {
 	updateVolumeStatusDone := make(chan struct{})
 	updateContentTreeDone := make(chan struct{})
 	peStoreMutex := sync.Mutex{}
-	go func() { // AAA
+	go func() {
 		peStoreMutex.Lock()
-		t.Log("AAA is holding lock")
 		defer func() {
 			peStoreMutex.Unlock()
-			t.Log("AAA is giving up lock")
 			updateVolumeStatusDone <- struct{}{}
 		}()
 
@@ -96,12 +94,10 @@ func TestPatchEnvelopes(t *testing.T) {
 		}
 	}()
 
-	go func() { // BBB
+	go func() {
 		peStoreMutex.Lock()
-		t.Log("BBB is holding lock")
 		defer func() {
 			peStoreMutex.Unlock()
-			t.Log("BBB is giving up lock")
 			updateContentTreeDone <- struct{}{}
 		}()
 
@@ -112,15 +108,11 @@ func TestPatchEnvelopes(t *testing.T) {
 		}
 	}()
 
-	go func() { // CCC
+	go func() {
 		//		<-updateContentTreeDone
 		//		<-updateVolumeStatusDone
 		peStoreMutex.Lock()
-		t.Log("CCC is holding lock")
-		defer func() {
-			peStoreMutex.Unlock()
-			t.Log("CCC is giving up lock")
-		}()
+		defer peStoreMutex.Unlock()
 
 		peStore.UpdateEnvelopes(peInfo)
 		peStore.UpdateStateNotificationCh() <- struct{}{}
@@ -136,10 +128,7 @@ func TestPatchEnvelopes(t *testing.T) {
 			// one which moves VolumeRef to BinaryBlob (envelopes[0].BinaryBlobs >= 2
 			// one which adds SHA to BinaryBlob created from VolumeRef (finding blob and comparing SHA)
 			envelopes := peStore.Get(app1UUID).Envelopes
-			t.Logf("got %d envelopes", len(envelopes))
-			t.Logf("pes to update: %+v", peStore.GetEnvelopesToUpdate().Keys())
 			if len(envelopes) > 0 && len(envelopes[0].BinaryBlobs) >= 2 {
-				t.Logf("envelopes[0].BinaryBlobs: %+v", envelopes[0].BinaryBlobs)
 				volBlobIdx := types.CompletedBinaryBlobIdxByName(envelopes[0].BinaryBlobs, "VolTestFileName")
 				if volBlobIdx != -1 && envelopes[0].BinaryBlobs[volBlobIdx].FileSha != "" {
 					close(finishedProcessing)
