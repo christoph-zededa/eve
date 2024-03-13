@@ -9,7 +9,7 @@
 # to be a perfect place to put any other kind of debug info
 # into the package: see abuild/etc/abuild.conf.
 FROM lfedge/eve-alpine:cbf02c2c126f210933ec9bdb142eb080b400fd76 as build
-ENV BUILD_PKGS abuild curl tar make linux-headers patch g++ git gcc ncurses-dev autoconf
+ENV BUILD_PKGS abuild curl tar make linux-headers patch g++ git gcc ncurses-dev autoconf cmake zlib-dev elfutils-dev boost1.78-dev g++ bison flex
 # Feel free to add additional packages here, but be aware that
 # EVE's rootfs image can be no larger than 300Mb (and don't
 # forget to check on all supported architectures: e.g. arm64
@@ -60,20 +60,45 @@ WORKDIR /tmp/hexedit/hexedit-1.5
 # hadolint ignore=DL4006
 ADD https://github.com/pixel/hexedit/archive/refs/tags/1.5.tar.gz ../1.5.tar.gz
 RUN tar -C .. -xzvf ../1.5.tar.gz
-RUN ./autogen.sh && ./configure && make DESTDIR=/out install
+RUN ./autogen.sh && ./configure && make -j "$(getconf _NPROCESSORS_ONLN)" && make DESTDIR=/out install
 
-# tweaking various bit
-WORKDIR /out
-COPY ssh.sh spec.sh scripts/ ./usr/bin/
-RUN mkdir -p ./etc/ssh ./root/.ssh && chmod 0700 ./root/.ssh
-RUN cp /etc/passwd /etc/group ./etc/
-RUN ln -s /run ./var/run
-RUN sed -i -e 's#AllowTcpForwarding.*$#AllowTcpForwarding yes#' ./etc/ssh/sshd_config
+# building bpftrace
 
-FROM scratch
-ENTRYPOINT []
-WORKDIR /
+WORKDIR /usr/src
+RUN git clone https://github.com/libbpf/libbpf.git -b v1.3.0
+WORKDIR /usr/src/libbpf/src
+RUN make -j "$(getconf _NPROCESSORS_ONLN)"
+RUN make install
+WORKDIR /usr/src
 
-COPY --from=build /out/ /
+RUN git clone https://github.com/USCiLab/cereal.git
+RUN mkdir -p /usr/src/cereal/build
+WORKDIR /usr/src/cereal/build
+RUN cmake ..
+RUN make -j "$(getconf _NPROCESSORS_ONLN)"
+RUN make test
+RUN make install
 
-CMD ["/sbin/tini", "/usr/bin/ssh.sh"]
+
+
+WORKDIR /usr/src
+#RUN git clone https://github.com/christoph-zededa/bpftrace.git -b keep_aot_bytecode
+#RUN mkdir -p /usr/src/bpftrace/build
+#WORKDIR /usr/src/bpftrace/build
+#RUN cmake ..
+
+## tweaking various bit
+#WORKDIR /out
+#COPY ssh.sh spec.sh scripts/ ./usr/bin/
+#RUN mkdir -p ./etc/ssh ./root/.ssh && chmod 0700 ./root/.ssh
+#RUN cp /etc/passwd /etc/group ./etc/
+#RUN ln -s /run ./var/run
+#RUN sed -i -e 's#AllowTcpForwarding.*$#AllowTcpForwarding yes#' ./etc/ssh/sshd_config
+#
+#FROM scratch
+#ENTRYPOINT []
+#WORKDIR /
+#
+#COPY --from=build /out/ /
+#
+#CMD ["/sbin/tini", "/usr/bin/ssh.sh"]
