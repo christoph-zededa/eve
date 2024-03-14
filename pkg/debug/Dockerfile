@@ -41,7 +41,8 @@ RUN su builder -c 'cd /musl && abuild checksum && abuild -r'
 RUN apk add -p /out --allow-untrusted /home/builder/packages/*/musl-1.2*.apk
 
 # hadolint ignore=DL4006
-ADD https://www.ezix.org/software/files/lshw-B.${LSHW_VERSION}.tar.gz lshw.tar.gz
+#ADD https://www.ezix.org/software/files/lshw-B.${LSHW_VERSION}.tar.gz lshw.tar.gz
+RUN wget https://www.ezix.org/software/files/lshw-B.${LSHW_VERSION}.tar.gz -O lshw.tar.gz
 RUN tar -xzvf lshw.tar.gz
 
 WORKDIR /
@@ -79,9 +80,21 @@ RUN make -j "$(getconf _NPROCESSORS_ONLN)"
 RUN make test
 RUN make install
 
-
+WORKDIR /usr/src
+RUN git clone https://github.com/llvm/llvm-project.git -b release/18.x --depth=1
+WORKDIR /usr/src/llvm-project/
+RUN cmake -S llvm -B build -DCMAKE_BUILD_TYPE=Release -G "Unix Makefiles" -DLLVM_ENABLE_PROJECTS="clang"
+RUN make -j "$(getconf _NPROCESSORS_ONLN)" -C build
+RUN make -C build install
 
 WORKDIR /usr/src
+RUN git clone https://github.com/iovisor/bcc.git
+RUN mkdir -p /usr/src/bcc/build
+#WORKDIR /usr/src/bcc/build
+
+
+
+#WORKDIR /usr/src
 #RUN git clone https://github.com/christoph-zededa/bpftrace.git -b keep_aot_bytecode
 #RUN mkdir -p /usr/src/bpftrace/build
 #WORKDIR /usr/src/bpftrace/build
