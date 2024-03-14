@@ -24,7 +24,7 @@ ENV PKGS_arm64 procps tar dmidecode iptables dhcpcd tio socat
 
 RUN eve-alpine-deploy.sh
 
-ENV LSHW_VERSION 02.19.2
+ENV LSHW_VERSION 02.20
 
 # setting up building account
 RUN adduser -G abuild -D builder || :
@@ -42,19 +42,21 @@ RUN apk add -p /out --allow-untrusted /home/builder/packages/*/musl-1.2*.apk
 
 # hadolint ignore=DL4006
 #ADD https://www.ezix.org/software/files/lshw-B.${LSHW_VERSION}.tar.gz lshw.tar.gz
-RUN wget https://www.ezix.org/software/files/lshw-B.${LSHW_VERSION}.tar.gz -O lshw.tar.gz
-RUN tar -xzvf lshw.tar.gz
+#RUN wget https://www.ezix.org/software/files/lshw-B.${LSHW_VERSION}.tar.gz -O lshw.tar.gz
+#RUN tar -xzvf lshw.tar.gz
+RUN git clone https://github.com/lyonel/lshw.git -b B.${LSHW_VERSION} lshw-B.${LSHW_VERSION}
 
 WORKDIR /
 COPY lshw/ lshw-B.${LSHW_VERSION}/
 
 WORKDIR /lshw-B.${LSHW_VERSION}
 
-RUN for patch in *.patch; do \
-   patch -p1 < "$patch"; \
- done && \
- make -C src RPM_OPT_FLAGS=-DNONLS static && \
- cp src/lshw-static /out/usr/bin/lshw && strip /out/usr/bin/lshw
+#RUN for patch in *.patch; do \
+#   echo ">>> $patch"; \
+#   patch -p1 < "$patch"; \
+# done
+RUN make -C src RPM_OPT_FLAGS=-DNONLS static
+RUN cp src/lshw-static /out/usr/bin/lshw && strip /out/usr/bin/lshw
 
 # building hexedit
 WORKDIR /tmp/hexedit/hexedit-1.5
