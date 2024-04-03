@@ -38,6 +38,8 @@ type DomainConfig struct {
 	DiskConfigList []DiskConfig
 	VifList        []VifConfig
 	IoAdapterList  []IoAdapter
+	// KubeImageName : For native containers on kubevirt eve domainmgr needs to know the image reference
+	KubeImageName string
 
 	// XXX: to be deprecated, use CipherBlockStatus instead
 	CloudInitUserData *string `json:"pubsub-large-CloudInitUserData"` // base64-encoded
@@ -141,6 +143,24 @@ func (config DomainConfig) VirtualizationModeOrDefault() VmMode {
 	default:
 		return PV
 	}
+}
+
+func (status DiskStatus) GetPVCNameFromVolumeKey() (string, error) {
+	volumeIDAndGeneration := status.VolumeKey
+	generation := strings.Split(volumeIDAndGeneration, "#")
+	volUUID, err := uuid.FromString(generation[0])
+	if err != nil {
+		return "", fmt.Errorf("failed to parse volUUID: %s", err)
+	}
+
+	generationCounter, err := strconv.ParseInt(generation[1], 10, 64)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse GenerationCounter: %s", err)
+	}
+
+	pvcName := fmt.Sprintf("%s-pvc-%d", volUUID, generationCounter)
+
+	return pvcName, nil
 }
 
 // LogCreate :
