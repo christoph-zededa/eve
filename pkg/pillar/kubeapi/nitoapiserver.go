@@ -1,4 +1,4 @@
-//go:build kubevirt
+//go:build !kubevirt
 
 package kubeapi
 
