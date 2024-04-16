@@ -5,6 +5,7 @@ package agentlog
 
 import (
 	"fmt"
+	"golang.org/x/exp/trace"
 	"io"
 	"net/http"
 	"net/http/pprof"
@@ -19,6 +20,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/lf-edge/eve/pkg/pillar/base"
 	"github.com/lf-edge/eve/pkg/pillar/types"
 	fileutils "github.com/lf-edge/eve/pkg/pillar/utils/file"
@@ -226,6 +228,39 @@ func writeOrLog(log *base.LogObject, w io.Writer, msg string) {
 }
 
 var listenDebugRunning atomic.Bool
+var flightRecorderRunning atomic.Bool
+
+func runFlightRecorder(stop chan struct{}, log *base.LogObject, httpWriter io.Writer) {
+	if flightRecorderRunning.Swap(true) {
+		err := fmt.Errorf("flight recorder is already running")
+		writeOrLog(log, httpWriter, err.Error())
+		log.Error(err)
+		return
+	}
+
+	go func() {
+		fr := trace.NewFlightRecorder()
+		fr.SetSize(1024 * 1024 * 1024)
+		fr.Start()
+		for {
+			select {
+			case <-stop:
+				file, err := os.Create("/persist/flightRecorder.trace")
+				if err != nil {
+					log.Error(err)
+				}
+				defer file.Close()
+				_, err = fr.WriteTo(file)
+				if err != nil {
+					log.Error(err)
+				}
+				fr.Stop()
+				flightRecorderRunning.Swap(false)
+				return
+			}
+		}
+	}()
+}
 
 func listenDebug(log *base.LogObject, stacksDumpFileName, memDumpFileName string) {
 	if listenDebugRunning.Swap(true) {
@@ -247,6 +282,8 @@ func listenDebug(log *base.LogObject, stacksDumpFileName, memDumpFileName string
 	    To create a flamegraph, do: go tool pprof -raw -output=cpu.txt 'http://localhost:6543/debug/pprof/profile?seconds=5';</br>
 	    stackcollapse-go.pl cpu.txt | flamegraph.pl --width 4096 > flame.svg</br>
 	    (both scripts can be found <a href="https://github.com/brendangregg/FlameGraph">here</a>)
+		</br></br>
+	    <a href="/memstats">show memory statistics from runtime.ReadMemStats</a></br></br>
 		`
 
 	mux.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -258,6 +295,34 @@ func listenDebug(log *base.LogObject, stacksDumpFileName, memDumpFileName string
 		writeOrLog(log, w, info)
 	}))
 
+	flightRecorderChan := make(chan struct{})
+	mux.Handle("/flightrecorder/start", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			runFlightRecorder(flightRecorderChan, log, w)
+		} else {
+			http.Error(w, "Did you want to use POST method?", http.StatusMethodNotAllowed)
+			return
+		}
+	}))
+	mux.Handle("/flightrecorder/stop", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			flightRecorderChan <- struct{}{}
+		} else {
+			http.Error(w, "Did you want to use POST method?", http.StatusMethodNotAllowed)
+			return
+		}
+	}))
+	mux.Handle("/memstats", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			var memStats runtime.MemStats
+			runtime.ReadMemStats(&memStats)
+			memStatsString := spew.Sdump(memStats)
+			writeOrLog(log, w, memStatsString)
+		} else {
+			http.Error(w, "Did you want to use GET method?", http.StatusMethodNotAllowed)
+			return
+		}
+	}))
 	mux.Handle("/debug/pprof/", http.HandlerFunc(pprof.Index))
 	mux.Handle("/debug/pprof/cmdline", http.HandlerFunc(pprof.Cmdline))
 	mux.Handle("/debug/pprof/profile", http.HandlerFunc(pprof.Profile))
