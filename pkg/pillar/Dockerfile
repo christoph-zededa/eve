@@ -4,7 +4,7 @@
 # Dockerfile to build pillar
 
 # use the same set of packages for simplicity
-ARG BUILD_PKGS_BASE="git gcc linux-headers libc-dev make linux-pam-dev m4 findutils go util-linux make patch \
+ARG BUILD_PKGS_BASE="bash git gcc linux-headers libc-dev make linux-pam-dev m4 findutils go util-linux make patch \
                      libintl libuuid libtirpc libblkid libcrypto1.1 zlib tar"
 
 # we use the same image in several places
@@ -80,6 +80,15 @@ ARG RSTATS_TAG=
 # we need zfs files during build
 COPY --from=zfs /out /
 
+ENV GOARCH=${TARGETARCH}
+ADD https://go.dev/dl/go1.22.2.src.tar.gz /usr/src/go1.22.2.src.tar.gz
+WORKDIR /usr/src
+RUN tar xvf go1.22.2.src.tar.gz
+WORKDIR /usr/src/go/src
+RUN ./make.bash
+
+ENV PATH="/usr/src/go/bin:/root/go/bin:${PATH}"
+
 ADD ./  /pillar/
 
 # go vet/format and go install
@@ -89,7 +98,6 @@ ENV GOFLAGS=-mod=vendor
 ENV GO111MODULE=on
 ENV CGO_ENABLED=1
 ENV GOOS=linux
-ENV GOARCH=${TARGETARCH}
 ENV CC=${CROSS_COMPILE_ENV}gcc
 ARG GOPKGVERSION
 
