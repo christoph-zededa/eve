@@ -104,13 +104,13 @@ func MaybeAddDomainConfig(ctx *zedmanagerContext,
 			dc.Ramdisk = "/usr/lib/xen/boot/runx-initrd"
 		}
 		if dc.ExtraArgs == "" {
-			dc.ExtraArgs = "console=hvc0 root=9p dhcp=1"
+			dc.ExtraArgs = "root=9p dhcp=1"
 		}
-		if dc.EnableVnc {
-			dc.ExtraArgs += " console=tty0"
-		} else {
-			dc.GPUConfig = ""
-		}
+		//if dc.EnableVnc {
+		dc.ExtraArgs += " console=tty0"
+		//} else {
+		//	dc.GPUConfig = ""
+		//}
 		if dc.BootLoader == "" {
 			if runtime.GOARCH == "amd64" {
 				dc.BootLoader = "/usr/lib/xen/boot/seabios.bin"

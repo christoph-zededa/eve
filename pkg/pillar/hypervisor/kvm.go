@@ -395,7 +395,7 @@ func newKvm() Hypervisor {
 			ctrdContext:  *ctrdCtx,
 			devicemodel:  "virt",
 			dmExec:       "/usr/lib/xen/bin/qemu-system-aarch64",
-			dmArgs:       []string{"-display", "none", "-S", "-no-user-config", "-nodefaults", "-no-shutdown", "-overcommit", "mem-lock=on", "-overcommit", "cpu-pm=on"},
+			dmArgs:       []string{"-display", "none", "-vnc", ":0", "-S", "-no-user-config", "-nodefaults", "-no-shutdown", "-overcommit", "mem-lock=on", "-overcommit", "cpu-pm=on"},
 			dmCPUArgs:    []string{"-cpu", "host"},
 			dmFmlCPUArgs: []string{"-cpu", "host"},
 		}
@@ -405,7 +405,7 @@ func newKvm() Hypervisor {
 			ctrdContext:  *ctrdCtx,
 			devicemodel:  "pc-q35-3.1",
 			dmExec:       "/usr/lib/xen/bin/qemu-system-x86_64",
-			dmArgs:       []string{"-display", "none", "-S", "-no-user-config", "-nodefaults", "-no-shutdown", "-no-hpet"},
+			dmArgs:       []string{"-display", "none", "-vnc", ":0", "-S", "-no-user-config", "-nodefaults", "-no-shutdown", "-no-hpet"},
 			dmCPUArgs:    []string{"-cpu", "host"},
 			dmFmlCPUArgs: []string{"-cpu", "host,hv_time,hv_relaxed,hv_vendor_id=eveitis,hypervisor=off,kvm=off"},
 		}
@@ -687,12 +687,15 @@ func (ctx KvmContext) Setup(status types.DomainStatus, config types.DomainConfig
 // this application is disabled.
 func isVncShimVMEnabled(
 	globalConfig *types.ConfigItemValueMap, config types.DomainConfig) bool {
-	globalShimVnc := false
-	if globalConfig != nil {
-		item, ok := globalConfig.GlobalSettings[types.VncShimVMAccess]
-		globalShimVnc = ok && item.BoolValue
-	}
-	return config.EnableVnc && (config.EnableVncShimVM || globalShimVnc)
+	return true
+	/*
+		globalShimVnc := false
+		if globalConfig != nil {
+			item, ok := globalConfig.GlobalSettings[types.VncShimVMAccess]
+			globalShimVnc = ok && item.BoolValue
+		}
+		return config.EnableVnc && (config.EnableVncShimVM || globalShimVnc)
+	*/
 }
 
 // CreateDomConfig creates a domain config (a qemu config file,
