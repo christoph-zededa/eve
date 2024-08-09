@@ -118,6 +118,13 @@ const (
 
 	// ContainerdContentDir - path to containerd`s content store
 	ContainerdContentDir = ContainerdDir + "/io.containerd.content.v1.content"
+
+	// MemoryMonitorDir - directory for memory monitor
+	MemoryMonitorDir = PersistDir + "/memory-monitor"
+	// MemoryMonitorOutputDir - directory for memory monitor output
+	MemoryMonitorOutputDir = MemoryMonitorDir + "/output"
+	// MemoryMonitorPSIStatsFile - file to store memory PSI (Pressure Stall Information) statistics
+	MemoryMonitorPSIStatsFile = MemoryMonitorOutputDir + "/psi.txt"
 )
 
 var (
