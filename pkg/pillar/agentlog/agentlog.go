@@ -5,6 +5,7 @@ package agentlog
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -164,7 +165,7 @@ func handleSignals(log *base.LogObject, agentName string, agentPid int, sigs cha
 		case syscall.SIGUSR1:
 			dumpStacks(log, stacksDumpFileName)
 		case syscall.SIGUSR2:
-			go listenDebug(log, stacksDumpFileName, memDumpFileName)
+			go ListenDebug(log, stacksDumpFileName, memDumpFileName)
 		}
 	}
 }
@@ -233,7 +234,7 @@ var (
 	psiCollectorCancel  context.CancelFunc
 )
 
-func listenDebug(log *base.LogObject, stacksDumpFileName, memDumpFileName string) {
+func ListenDebug(log *base.LogObject, stacksDumpFileName, memDumpFileName string) {
 	if listenDebugRunning.Swap(true) {
 		return
 	}
@@ -338,7 +339,7 @@ func listenDebug(log *base.LogObject, stacksDumpFileName, memDumpFileName string
 		}
 	}))
 
-	if err := server.ListenAndServe(); err != nil {
+	if err := server.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
 		log.Errorf("Listening failed: %+v", err)
 	}
 }

@@ -20,8 +20,6 @@ import (
 const (
 	// PSIHeader is the header of the PSI log file
 	PSIHeader = "date time someAvg10 someAvg60 someAvg300 someTotal fullAvg10 fullAvg60 fullAvg300 fullTotal"
-	//PressureMemoryFile is the memory pressure file
-	PressureMemoryFile = "/proc/pressure/memory"
 	// PSITimeIntervalSec is the time interval in seconds to collect PSI data
 	PSITimeIntervalSec = 1
 	// StatLinesPerHour is the maximum number of lines in the log file
@@ -41,6 +39,9 @@ const (
 	// calculation of the threshold file size.
 	StatLineSize = 75
 )
+
+// PressureMemoryFile is the memory pressure file
+var PressureMemoryFile = "/proc/pressure/memory"
 
 // MemAllocationSite is the return value of GetMemProfile
 type MemAllocationSite struct {

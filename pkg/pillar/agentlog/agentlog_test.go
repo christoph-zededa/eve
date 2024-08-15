@@ -5,7 +5,11 @@
 package agentlog_test
 
 import (
+	"net/http"
+	"os"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/lf-edge/eve/pkg/pillar/agentlog"
@@ -218,4 +222,80 @@ func TestPubsubLog(t *testing.T) {
 	t.Logf("ProcessChange deleted?")
 	sub.ProcessChange(change)
 	assert.True(t, deleted)
+}
+
+func TestMemoryPressure(t *testing.T) {
+	realPressureMemoryProfile := agentlog.PressureMemoryFile
+	defer func() {
+		agentlog.PressureMemoryFile = realPressureMemoryProfile
+	}()
+
+	mpfh, err := os.CreateTemp("", "memory-pressure")
+	if err != nil {
+		panic(err)
+	}
+
+	err = os.MkdirAll(types.MemoryMonitorOutputDir, 0755)
+	if err != nil {
+		panic(err)
+	}
+
+	mpFile := mpfh.Name()
+	defer os.Remove(mpFile)
+	agentlog.PressureMemoryFile = mpFile
+
+	_, log := agentlog.Init("http-debug")
+	go agentlog.ListenDebug(log, "stackdump", "memdump")
+	time.Sleep(time.Second) // wait for ListenDebug to start http service
+
+	defer func() {
+		http.Post("http://localhost:6543/stop", "", nil)
+	}()
+
+	_, err = mpfh.Write([]byte(`some avg10=0.00 avg60=0.00 avg300=0.00 total=0
+full avg10=0.00 avg60=0.00 avg300=0.00 total=0`))
+	if err != nil {
+		panic(err)
+	}
+
+	resp, err := http.Post("http://127.0.0.1:6543/memory-monitor/psi-collector/start", "", nil)
+	if err != nil {
+		log.Fatalf("Starting psi collector failed: %v - response is %v", err, resp)
+	}
+
+	// Let it work ...
+	time.Sleep(5 * time.Second)
+	resp, err = http.Post("http://127.0.0.1:6543/memory-monitor/psi-collector/stop", "", nil)
+	if err != nil {
+		log.Fatalf("Starting psi collector failed: %v - response is %v", err, resp)
+	}
+
+	content, err := os.ReadFile(types.MemoryMonitorPSIStatsFile)
+	if err != nil {
+		t.Fatalf("could not read from %s: %v", types.MemoryMonitorPSIStatsFile, err)
+	}
+
+	if !strings.Contains(string(content), `0.00 0.00 0.00 0 0.00 0.00 0.00 0`) {
+		t.Fatalf("expected statistics line, but only got %s", string(content))
+	}
+
+	// expect that old file is overwritten
+	resp, err = http.Post("http://127.0.0.1:6543/memory-monitor/psi-collector/start", "", nil)
+	if err != nil {
+		log.Fatalf("Starting psi collector failed: %v - response is %v", err, resp)
+	}
+
+	resp, err = http.Post("http://127.0.0.1:6543/memory-monitor/psi-collector/stop", "", nil)
+	if err != nil {
+		log.Fatalf("Starting psi collector failed: %v - response is %v", err, resp)
+	}
+
+	newContent, err := os.ReadFile(types.MemoryMonitorPSIStatsFile)
+	if err != nil {
+		t.Fatalf("could not read from %s: %v", types.MemoryMonitorPSIStatsFile, err)
+	}
+
+	if len(content) < len(newContent) {
+		t.Fatal("new collector stats file to be smaller than old one")
+	}
 }
