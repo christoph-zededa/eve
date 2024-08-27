@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"os"
 	"testing"
@@ -22,7 +23,7 @@ func testCompile(t *testing.T, arch, eveKernel string) {
 	}
 	btFh.Close()
 
-	aotFh, err := os.CreateTemp("/var/tmp", "bpftrace-testcompileamd64aoh")
+	aotFh, err := os.CreateTemp("/var/tmp", fmt.Sprintf("bpftrace-testcompile-aoh-%s", arch))
 	if err != nil {
 		panic(err)
 	}
