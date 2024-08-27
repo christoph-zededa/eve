@@ -21,8 +21,8 @@ RUN mkdir /out/mnt
 #RUN tar xf /kernel-headers.tar
 #RUN tar xf /kernel-dev.tar
 ## ----
-#RUN mkdir /out/kernel-all
-#COPY --from=kernel / /out/kernel-all
+RUN mkdir /out/kernel-all
+COPY --from=kernel / /out/kernel-all
 ## ----
 
 
