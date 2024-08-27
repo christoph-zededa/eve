@@ -14,16 +14,16 @@ RUN mkdir /out
 RUN mkdir /out/bin
 RUN mkdir /out/mnt
 
-# ----
-COPY --from=kernel /kernel-headers.tar /
-COPY --from=kernel /kernel-dev.tar /
-WORKDIR /out
-RUN tar xvf /kernel-headers.tar
-RUN tar xvf /kernel-dev.tar
-# ----
-RUN mkdir /out/kernel-all
-COPY --from=kernel / /out/kernel-all
-# ----
+## ----
+#COPY --from=kernel /kernel-headers.tar /
+#COPY --from=kernel /kernel-dev.tar /
+#WORKDIR /out
+#RUN tar xf /kernel-headers.tar
+#RUN tar xf /kernel-dev.tar
+## ----
+#RUN mkdir /out/kernel-all
+#COPY --from=kernel / /out/kernel-all
+## ----
 
 
 COPY --from=eve-bpftrace /bpftrace/usr/bin/bpftrace /out/usr/bin/bpftrace
