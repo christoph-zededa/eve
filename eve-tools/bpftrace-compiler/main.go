@@ -20,6 +20,14 @@ func main() {
 	var userspaceContainerListFlag *[]string
 	var userspaceContainerHTTPFlag *[]string
 
+	defer func() {
+		r := recover()
+		if r != nil {
+			fmt.Printf("recover: %v\n", r)
+			os.Exit(1)
+		}
+	}()
+
 	execName, err := os.Executable()
 	if err != nil {
 		log.Fatal(err)

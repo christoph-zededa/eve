@@ -78,8 +78,9 @@ func defaultLinuxkitCache() string {
 
 func newImageBuilder(arch string, lkConf lkConf, outputDir string) *imageBuilder {
 	ib := &imageBuilder{
-		cacheDir:  defaultLinuxkitCache(),
-		logWriter: io.Discard,
+		cacheDir: defaultLinuxkitCache(),
+		//	logWriter: io.Discard,
+		logWriter: os.Stdout,
 		arch:      arch,
 		lkConf:    lkConf,
 		outputDir: outputDir,
@@ -109,7 +110,7 @@ func (ib *imageBuilder) buildPkgs(args []string) error {
 	}
 
 	opts = append(opts, pkglib.WithBuildCacheDir(ib.cacheDir))
-	opts = append(opts, pkglib.WithBuildTargetDockerCache())
+	opts = append(opts, pkglib.WithBuildPull())
 	opts = append(opts, pkglib.WithBuildManifest())
 	opts = append(opts, pkglib.WithBuildOutputWriter(ib.logWriter))
 

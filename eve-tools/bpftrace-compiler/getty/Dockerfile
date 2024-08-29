@@ -15,11 +15,12 @@ RUN mkdir /out/bin
 RUN mkdir /out/mnt
 
 ## ----
-#COPY --from=kernel /kernel-headers.tar /
-#COPY --from=kernel /kernel-dev.tar /
-#WORKDIR /out
-#RUN tar xf /kernel-headers.tar
-#RUN tar xf /kernel-dev.tar
+WORKDIR /
+COPY --from=kernel /kernel-headers.tar /
+RUN tar xf /kernel-headers.tar
+#COPY --from=kernel /kernel-src.tar /
+WORKDIR /out
+#RUN tar xf /kernel-src.tar
 ## ----
 RUN mkdir /out/kernel-all
 COPY --from=kernel / /out/kernel-all
