@@ -63,6 +63,8 @@ jobs:
           make pkg/bpftrace
           make ZARCH=arm64 pkg/bpftrace
           make test
+        with:
+          fetch-depth: 0
       - name: Report test results as Annotations
         if: ${{ always() }}
         uses: guyarb/golang-test-annoations@96fc379b171c49932041d6c789e73331a7bdeec1  # v0.9.0
