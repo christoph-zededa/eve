@@ -432,7 +432,9 @@ currentversion:
 
 test: $(LINUXKIT) test-images-patches | $(DIST)
 	@echo Running tests on $(GOMODULE)
-	make -C pkg/pillar test
+	make -C tools/git-change-exec
+	./tools/git-change-exec/git-change-exec test
+	touch pkg/pillar/results.json pkg/pillar/results.xml
 	cp pkg/pillar/results.json $(DIST)/
 	cp pkg/pillar/results.xml $(DIST)/
 	make -C eve-tools/bpftrace-compiler test
