@@ -6,8 +6,14 @@
 BASE_COMMIT=$1
 IGNORE_FILE=".spdxignore"
 
-# List of files to check, excluding vendor directories
-files=$(git diff --name-only --diff-filter=A "${BASE_COMMIT}"..HEAD)
+
+if [ -e ${BASE_COMMIT} ]
+then
+    files="$@"
+else
+    # List of files to check, excluding vendor directories
+    files=$(git diff --name-only --diff-filter=A "${BASE_COMMIT}"..HEAD)
+fi
 
 # SPDX License Identifier to check for
 license_identifiers=(
