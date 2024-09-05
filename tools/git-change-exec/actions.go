@@ -6,6 +6,7 @@ package main
 import (
 	"os"
 	"os/exec"
+	"path/filepath"
 	"reflect"
 	"strings"
 )
@@ -17,6 +18,10 @@ type action interface {
 
 func id(i any) string {
 	ty := reflect.TypeOf(i)
+
+	if ty.Name() == "" {
+		ty = reflect.TypeOf(i).Elem()
+	}
 	return ty.Name()
 }
 
@@ -35,6 +40,9 @@ var actions = []action{
 	pillarTestAction{},
 	gitChangeExecTest{},
 	getDepsTestAction{},
+	&spdxCheck{
+		checkFiles: []string{},
+	},
 }
 
 type pillarTestAction struct{}
@@ -65,4 +73,37 @@ func (g gitChangeExecTest) match(path string) bool {
 }
 func (g gitChangeExecTest) do() error {
 	return execCmdWithDefaults("go", "test", "-C", "tools/git-change-exec", "-v").Run()
+}
+
+type spdxCheck struct {
+	checkFiles []string
+}
+
+func (s *spdxCheck) match(path string) bool {
+	exts := []string{
+		".sh",
+		".c", ".h",
+		".go",
+		".py",
+		".rs",
+		".yaml", ".yml",
+		".proto",
+	}
+
+	for _, ext := range exts {
+		if filepath.Ext(path) == ext {
+			return true
+		}
+	}
+
+	return false
+}
+func (s *spdxCheck) do() error {
+	cmd := exec.Command("tools/spdx-check.sh", s.checkFiles...)
+
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Stdin = os.Stdin
+
+	return cmd.Run()
 }
