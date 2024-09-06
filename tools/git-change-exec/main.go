@@ -5,6 +5,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -37,6 +38,16 @@ func main() {
 	flag.Parse()
 
 	dryRun = *dryRunFlag
+
+	if len(os.Args) < 2 || os.Args[1] == "" {
+		execName, err := os.Executable()
+		if err != nil {
+			panic(err)
+		}
+		fmt.Printf("Usage: %s <path to scripts>\n", execName)
+		os.Exit(0)
+	}
+	loadActions(os.Args[1])
 
 	gce := newGitChangeExec()
 

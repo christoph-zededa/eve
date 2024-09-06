@@ -2,7 +2,10 @@ module git-change-exec
 
 go 1.22.6
 
-require github.com/go-git/go-git/v5 v5.12.0
+require (
+	github.com/go-git/go-git/v5 v5.12.0
+	github.com/traefik/yaegi v0.16.1
+)
 
 require (
 	dario.cat/mergo v1.0.0 // indirect

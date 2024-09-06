@@ -4,10 +4,16 @@
 package main
 
 import (
+	"fmt"
 	"os"
-	"os/exec"
+	"path/filepath"
 	"reflect"
-	"strings"
+
+	"github.com/traefik/yaegi/interp"
+	"github.com/traefik/yaegi/stdlib"
+	"github.com/traefik/yaegi/stdlib/syscall"
+	"github.com/traefik/yaegi/stdlib/unrestricted"
+	"github.com/traefik/yaegi/stdlib/unsafe"
 )
 
 type action interface {
@@ -15,54 +21,95 @@ type action interface {
 	do() error
 }
 
+var actions []action
+
 func id(i any) string {
+	as, ok := i.(actionScript)
+	if ok {
+		return as.id
+	}
 	ty := reflect.TypeOf(i)
-	return ty.Name()
+	name := ty.Name()
+	if name == "" {
+		panic("no name")
+	}
+
+	return name
 }
 
-func execCmdWithDefaults(name string, args ...string) *exec.Cmd {
-	cmd := exec.Command(name, args...)
-
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	cmd.Stdin = os.Stdin
-
-	return cmd
+type actionScript struct {
+	interpreter *interp.Interpreter
+	id          string
+	runDo       func() error
+	runMatch    func(string) bool
 }
 
-// Do not forget to add your Action HERE
-var actions = []action{
-	pillarTestAction{},
-	gitChangeExecTest{},
-	getDepsTestAction{},
+func (a *actionScript) setMethods() {
+	doRefVal, err := a.interpreter.Eval("do")
+	if err != nil {
+		panic(err)
+	}
+
+	a.runDo = doRefVal.Interface().(func() error)
+	matchRefVal, err := a.interpreter.Eval("match")
+	if err != nil {
+		panic(err)
+	}
+	a.runMatch = matchRefVal.Interface().(func(string) bool)
 }
 
-type pillarTestAction struct{}
-
-func (b pillarTestAction) match(path string) bool {
-	return strings.HasPrefix(path, "pkg/pillar")
+func (a actionScript) do() error {
+	return a.runDo()
 }
 
-func (b pillarTestAction) do() error {
-	return execCmdWithDefaults("make", "-C", "pkg/pillar", "test").Run()
+func (a actionScript) match(path string) bool {
+	return a.runMatch(path)
 }
 
-type getDepsTestAction struct{}
+func newActionScript() actionScript {
+	var as actionScript
 
-func (g getDepsTestAction) match(path string) bool {
-	return strings.HasPrefix(path, "tools/get-deps")
+	as.interpreter = interp.New(interp.Options{Unrestricted: true})
 
+	if err := as.interpreter.Use(stdlib.Symbols); err != nil {
+		panic(err)
+	}
+	if err := as.interpreter.Use(syscall.Symbols); err != nil {
+		panic(err)
+	}
+	if err := as.interpreter.Use(unsafe.Symbols); err != nil {
+		panic(err)
+	}
+	// Use of unrestricted symbols should always follow stdlib and syscall symbols, to update them.
+	if err := as.interpreter.Use(unrestricted.Symbols); err != nil {
+		panic(err)
+	}
+
+	return as
 }
-func (g getDepsTestAction) do() error {
-	return execCmdWithDefaults("go", "test", "-C", "tools/get-deps", "-v").Run()
-}
 
-type gitChangeExecTest struct{}
+func loadActions(dir string) {
+	actions = make([]action, 0)
 
-func (g gitChangeExecTest) match(path string) bool {
-	return strings.HasPrefix(path, "tools/git-change-exec")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		panic(err)
+	}
 
-}
-func (g gitChangeExecTest) do() error {
-	return execCmdWithDefaults("go", "test", "-C", "tools/git-change-exec", "-v").Run()
+	for _, entry := range entries {
+		a := newActionScript()
+		if filepath.Ext(entry.Name()) != ".go" {
+			continue
+		}
+		path := filepath.Join(dir, entry.Name())
+		_, err := a.interpreter.EvalPath(path)
+		if err != nil {
+			panic(err)
+		}
+		a.id = entry.Name()
+		a.setMethods()
+		fmt.Printf(">>> id %s\n", a.id)
+
+		actions = append(actions, a)
+	}
 }

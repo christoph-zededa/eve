@@ -6,10 +6,17 @@ package main
 import "testing"
 
 func TestId(t *testing.T) {
-	p := pillarTestAction{}
+	a := newActionScript()
 
-	id := id(p)
-	if id != "pillarTestAction" {
-		t.Fatalf("wrong id: %s\n", id)
+	_, err := a.interpreter.EvalPath("tests/gitChangeExecTest.go")
+	if err != nil {
+		panic(err)
+	}
+	a.setMethods()
+	a.id = "foo"
+
+	idString := id(a)
+	if idString != "foo" {
+		t.Fatalf("wrong id, got %s", idString)
 	}
 }
