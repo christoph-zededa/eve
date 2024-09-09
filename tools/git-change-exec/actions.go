@@ -38,6 +38,7 @@ var actions = map[string][]action{
 		pillarTestAction{},
 		gitChangeExecTest{},
 		getDepsTestAction{},
+		bpftraceCompilerExecTest{},
 	},
 	"lint": []action{
 		&lintSpdx{},

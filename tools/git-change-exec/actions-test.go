@@ -34,3 +34,13 @@ func (g gitChangeExecTest) match(path string) bool {
 func (g gitChangeExecTest) do() error {
 	return execCmdWithDefaults("go", "test", "-C", "tools/git-change-exec", "-v").Run()
 }
+
+type bpftraceCompilerExecTest struct{}
+
+func (bpftraceCompilerExecTest) match(path string) bool {
+	return strings.HasPrefix(path, "eve-tools/bpftrace-compiler")
+
+}
+func (bpftraceCompilerExecTest) do() error {
+	return execCmdWithDefaults("make", "-C", "eve-tools/bpftrace-compiler", "test").Run()
+}
