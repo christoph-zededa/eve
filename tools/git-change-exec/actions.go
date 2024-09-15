@@ -18,13 +18,13 @@ const (
 	opActionLineDel
 )
 
-type actionLine interface {
-	action
-	matchLine(path string, op opActionLine, lineNumber int, line string) bool
+type actionPath interface {
+	matchPath(path string) bool
 }
-
+type actionDiff interface {
+	matchDiff(path string, ld lineDiff) bool
+}
 type action interface {
-	match(path string) bool
 	do() error
 }
 

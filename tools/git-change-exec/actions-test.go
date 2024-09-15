@@ -3,11 +3,20 @@
 
 package main
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+)
 
 type pillarTestAction struct{}
 
-func (b pillarTestAction) match(path string) bool {
+func (b pillarTestAction) matchDiff(path string, ld lineDiff) bool {
+	fmt.Printf("--- %s:%d: %s %s\n", path, ld.lineNumber, ld.op, ld.line)
+
+	return false
+}
+
+func (b pillarTestAction) matchPath(path string) bool {
 	return strings.HasPrefix(path, "pkg/pillar")
 }
 
@@ -17,7 +26,7 @@ func (b pillarTestAction) do() error {
 
 type getDepsTestAction struct{}
 
-func (g getDepsTestAction) match(path string) bool {
+func (g getDepsTestAction) matchPath(path string) bool {
 	return strings.HasPrefix(path, "tools/get-deps")
 
 }
@@ -27,7 +36,7 @@ func (g getDepsTestAction) do() error {
 
 type gitChangeExecTest struct{}
 
-func (g gitChangeExecTest) match(path string) bool {
+func (g gitChangeExecTest) matchPath(path string) bool {
 	return strings.HasPrefix(path, "tools/git-change-exec")
 
 }
@@ -37,7 +46,7 @@ func (g gitChangeExecTest) do() error {
 
 type bpftraceCompilerExecTest struct{}
 
-func (bpftraceCompilerExecTest) match(path string) bool {
+func (bpftraceCompilerExecTest) matchPath(path string) bool {
 	return strings.HasPrefix(path, "eve-tools/bpftrace-compiler")
 
 }

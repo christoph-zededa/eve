@@ -149,7 +149,7 @@ func (s *lintSpdx) hasSpdx(path string) bool {
 	return err == nil
 }
 
-func (s *lintSpdx) match(path string) bool {
+func (s *lintSpdx) matchPath(path string) bool {
 	if s.extsMap == nil {
 		s.init()
 	}

@@ -5,7 +5,6 @@ package main
 
 import (
 	"bufio"
-	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -14,7 +13,6 @@ import (
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
-	"github.com/go-git/go-git/v5/plumbing/format/diff"
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/go-git/go-git/v5/plumbing/storer"
 	udiff "github.com/go-git/go-git/v5/utils/diff"
@@ -25,12 +23,35 @@ import (
 var dryRun = true
 var debug = false
 
+type lineOp uint8
+
+const (
+	lineAdd = iota
+	lineDel
+)
+
+func (o lineOp) String() string {
+	if o == lineAdd {
+		return "+"
+	}
+	if o == lineDel {
+		return "-"
+	}
+
+	return " "
+}
+
+type lineDiff struct {
+	op         lineOp
+	line       string
+	lineNumber uint64
+}
+
 type gitChangeExec struct {
 	actionsToCheck []action
 	actionDos      map[action]struct{}
 	gitPath        string
 	g              *git.Repository
-	visitedPaths   map[string]struct{}
 	relPaths       map[string]struct{}
 	baseCommit     *object.Commit
 }
@@ -45,7 +66,6 @@ func newGitChangeExec() gitChangeExec {
 	return gitChangeExec{
 		actionDos:      map[action]struct{}{},
 		actionsToCheck: []action{},
-		visitedPaths:   map[string]struct{}{},
 		relPaths:       map[string]struct{}{},
 	}
 }
@@ -106,9 +126,9 @@ func main() {
 			gce.collectActionsGitTree()
 			gce.collectDirtyGitTree()
 
+			gce.diff()
 			gce.runActionDos()
 
-			gce.diff()
 		},
 	}
 
@@ -151,6 +171,7 @@ func lineInFile(path string, line int) string {
 	return ""
 }
 
+/*
 func handleFilePatch(fp diff.FilePatch) {
 	fromFile, toFile := fp.Files()
 
@@ -220,52 +241,98 @@ func handleDiff(df diffmatchpatch.Diff) {
 
 	fmt.Printf("%s %s\n", op, df.Text)
 }
+*/
 
 func (gce *gitChangeExec) diff() {
+	//	wg := sync.WaitGroup{}
 	for path := range gce.relPaths {
-		blame, err := git.Blame(gce.baseCommit, path)
-		if err != nil {
-			log.Printf("could not blame '%s': %v", path, err)
-			//log.Fatalf("could not blame '%s': %v", path, err)
-			continue // TODO
-		} else {
-			log.Printf("blaming %s\n", path)
-		}
-		var oldContent string
-		lines := blame.Lines
-		for _, line := range lines {
-			oldContent += line.Text + "\n"
-		}
+		//		wg.Add(1)
+		//		go func(path string) {
+		gce.diffPath(path)
+		//		wg.Done()
+		//		}(path)
+	}
 
-		bs, err := os.ReadFile(path)
+	// wg.Wait()
+}
+
+func (gce *gitChangeExec) diffPath(path string) {
+	var oldContent string
+
+	/*
+		gce.blameMutex.Lock()
+		blame, err := git.Blame(gce.baseCommit, path)
+		gce.blameMutex.Unlock()
+
 		if err != nil {
-			log.Fatalf("could slurp '%s': %v", path, err)
+			//		log.Printf("could not blame '%s': %v", path, err)
+			oldContent = ""
+		} else {
+			//		log.Printf("blaming %s\n", path)
+			lines := blame.Lines
+			for _, line := range lines {
+				oldContent += line.Text + "\n"
+			}
 		}
-		dfs := udiff.Do(oldContent, string(bs))
-		//		fmt.Printf(">>> len(oldContent): %d <-> len(newContent): %d\n", len(oldContent), len(bs))
-		nlines := 1
-		for _, df := range dfs {
-			//handleDiff(df)
-			lines := splitLinesRegexp.FindAllString(df.Text, -1)
-			if df.Type == diffmatchpatch.DiffEqual {
-				nlines += len(lines)
-				continue
+	*/
+	///
+
+	file, err := gce.baseCommit.File(path)
+	if err == nil {
+		oldContent, err = file.Contents()
+		if err != nil {
+			log.Fatalf("could not get file contents of %s: %v", path, err)
+		}
+	}
+
+	///
+
+	bs, err := os.ReadFile(path)
+	if err != nil {
+		log.Printf("could slurp '%s': %v", path, err)
+	}
+	dfs := udiff.Do(oldContent, string(bs))
+
+	allEqual := true
+	for _, df := range dfs {
+		if df.Type != diffmatchpatch.DiffEqual {
+			allEqual = false
+		}
+	}
+	if allEqual {
+		return
+	}
+	gce.addActionByPath(path)
+
+	//		fmt.Printf(">>> len(oldContent): %d <-> len(newContent): %d\n", len(oldContent), len(bs))
+	nlines := 1
+	for _, df := range dfs {
+		//handleDiff(df)
+		lines := splitLinesRegexp.FindAllString(df.Text, -1)
+		if df.Type == diffmatchpatch.DiffEqual {
+			nlines += len(lines)
+			continue
+		}
+		var op lineOp
+		if df.Type == diffmatchpatch.DiffInsert {
+			op = lineAdd
+		}
+		if df.Type == diffmatchpatch.DiffDelete {
+			op = lineDel
+		}
+		for i, line := range lines {
+			index := nlines + i
+			line = strings.TrimSuffix(line, "\n")
+			ld := lineDiff{
+				op:         op,
+				line:       line,
+				lineNumber: uint64(index),
 			}
-			var op string
-			if df.Type == diffmatchpatch.DiffInsert {
-				op = "+"
-			}
-			if df.Type == diffmatchpatch.DiffDelete {
-				op = "-"
-			}
-			for i, line := range lines {
-				index := nlines + i
-				line = strings.TrimSuffix(line, "\n")
-				fmt.Printf("%d: %s %s\n", index, op, line)
-			}
-			if df.Type == diffmatchpatch.DiffInsert {
-				nlines += len(lines)
-			}
+			//fmt.Printf("%d: %s %s\n", index, op, line)
+			gce.addActionByLineDiff(path, ld)
+		}
+		if df.Type == diffmatchpatch.DiffInsert {
+			nlines += len(lines)
 		}
 	}
 }
@@ -323,7 +390,8 @@ func (gce *gitChangeExec) collectActionsGitTree() {
 		}
 
 		for _, st := range commitStats {
-			gce.addActionByPath(st.Name)
+			//gce.addActionByPath(st.Name)
+			gce.storePath(st.Name)
 		}
 
 		return nil
@@ -408,19 +476,23 @@ func (gce *gitChangeExec) retrieveMasterRef() []*plumbing.Reference {
 	return masterRefs
 }
 
-func (gce *gitChangeExec) addActionByPath(path string) {
-	if path == "" {
-		return
-	}
+func (gce *gitChangeExec) storePath(path string) {
 	gce.relPaths[path] = struct{}{}
-	fp := filepath.Join(gce.gitPath, path)
-	_, visited := gce.visitedPaths[fp]
-	if visited {
-		return
-	}
-	gce.visitedPaths[fp] = struct{}{}
+}
+
+func (gce *gitChangeExec) addActionByLineDiff(path string, ld lineDiff) {
 	for _, a := range gce.actionsToCheck {
-		if a.match(path) {
+		ad, ok := a.(actionDiff)
+		if ok && ad.matchDiff(path, ld) {
+			gce.actionDos[a] = struct{}{}
+		}
+	}
+}
+
+func (gce *gitChangeExec) addActionByPath(path string) {
+	for _, a := range gce.actionsToCheck {
+		ap, ok := a.(actionPath)
+		if ok && ap.matchPath(path) {
 			gce.actionDos[a] = struct{}{}
 		}
 	}
@@ -485,6 +557,7 @@ func (gce *gitChangeExec) collectDirtyGitTree() {
 		if !st.Mode().IsRegular() {
 			continue
 		}
-		gce.addActionByPath(file)
+		//gce.addActionByPath(file)
+		gce.storePath(file)
 	}
 }
