@@ -4,15 +4,21 @@
 package main
 
 import (
+	"bufio"
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/format/diff"
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/go-git/go-git/v5/plumbing/storer"
+	udiff "github.com/go-git/go-git/v5/utils/diff"
+	"github.com/sergi/go-diff/diffmatchpatch"
 	"github.com/spf13/cobra"
 )
 
@@ -25,6 +31,8 @@ type gitChangeExec struct {
 	gitPath        string
 	g              *git.Repository
 	visitedPaths   map[string]struct{}
+	relPaths       map[string]struct{}
+	baseCommit     *object.Commit
 }
 
 func debugLog(fmt string, args ...any) {
@@ -38,6 +46,7 @@ func newGitChangeExec() gitChangeExec {
 		actionDos:      map[action]struct{}{},
 		actionsToCheck: []action{},
 		visitedPaths:   map[string]struct{}{},
+		relPaths:       map[string]struct{}{},
 	}
 }
 
@@ -93,10 +102,13 @@ func main() {
 
 			gce.fetchOrigin()
 
+			gce.calculateBaseCommit()
 			gce.collectActionsGitTree()
 			gce.collectDirtyGitTree()
 
 			gce.runActionDos()
+
+			gce.diff()
 		},
 	}
 
@@ -118,8 +130,147 @@ func (gce *gitChangeExec) fetchOrigin() {
 	}
 }
 
-func (gce *gitChangeExec) collectActionsGitTree() {
+var splitLinesRegexp = regexp.MustCompile(`[^\n]*(\n|$)`)
 
+func lineInFile(path string, line int) string {
+	fp, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer fp.Close()
+
+	scanner := bufio.NewScanner(fp)
+	i := 0
+	for scanner.Scan() {
+		i++
+		if line == i {
+			return scanner.Text()
+		}
+	}
+
+	return ""
+}
+
+func handleFilePatch(fp diff.FilePatch) {
+	fromFile, toFile := fp.Files()
+
+	fromPath := ""
+	if fromFile != nil {
+		fromPath = fromFile.Path()
+	}
+	toPath := ""
+	if toFile != nil {
+		toPath = toFile.Path()
+	}
+	fmt.Printf(">> %s --> %s\n", fromPath, toPath)
+
+	if fp.IsBinary() {
+		return
+	}
+
+	nlines := 1
+	for _, ch := range fp.Chunks() {
+		lines := splitLinesRegexp.FindAllString(ch.Content(), -1)
+		var op string
+		if ch.Type() == diff.Equal {
+			nlines += len(lines)
+			continue
+		}
+		if ch.Type() == diff.Add {
+			op = "+"
+		}
+		if ch.Type() == diff.Delete {
+			op = "-"
+		}
+
+		//content := strings.TrimSpace(ch.Content())
+		for i, line := range lines {
+			index := nlines + i
+
+			line = strings.TrimSuffix(line, "\n")
+			var origLine string
+			if ch.Type() == diff.Add {
+				origLine = lineInFile(toPath, index)
+				if origLine != line && len(line) > 1 {
+					log.Fatalf("!!!! '%s' <-> '%s'\n", line, origLine)
+				}
+			}
+			fmt.Printf("%s %d %s ||| %s\n", op, index, line, origLine)
+		}
+		if ch.Type() == diff.Add {
+			nlines += len(lines)
+		}
+		if ch.Type() == diff.Delete {
+			//	nlines -= len(lines)
+		}
+	}
+}
+
+func handleDiff(df diffmatchpatch.Diff) {
+	var op string
+
+	switch df.Type {
+	case diffmatchpatch.DiffInsert:
+		op = "+"
+	case diffmatchpatch.DiffDelete:
+		op = "-"
+	default:
+		return
+	}
+
+	fmt.Printf("%s %s\n", op, df.Text)
+}
+
+func (gce *gitChangeExec) diff() {
+	for path := range gce.relPaths {
+		blame, err := git.Blame(gce.baseCommit, path)
+		if err != nil {
+			log.Printf("could not blame '%s': %v", path, err)
+			//log.Fatalf("could not blame '%s': %v", path, err)
+			continue // TODO
+		} else {
+			log.Printf("blaming %s\n", path)
+		}
+		var oldContent string
+		lines := blame.Lines
+		for _, line := range lines {
+			oldContent += line.Text + "\n"
+		}
+
+		bs, err := os.ReadFile(path)
+		if err != nil {
+			log.Fatalf("could slurp '%s': %v", path, err)
+		}
+		dfs := udiff.Do(oldContent, string(bs))
+		//		fmt.Printf(">>> len(oldContent): %d <-> len(newContent): %d\n", len(oldContent), len(bs))
+		nlines := 1
+		for _, df := range dfs {
+			//handleDiff(df)
+			lines := splitLinesRegexp.FindAllString(df.Text, -1)
+			if df.Type == diffmatchpatch.DiffEqual {
+				nlines += len(lines)
+				continue
+			}
+			var op string
+			if df.Type == diffmatchpatch.DiffInsert {
+				op = "+"
+			}
+			if df.Type == diffmatchpatch.DiffDelete {
+				op = "-"
+			}
+			for i, line := range lines {
+				index := nlines + i
+				line = strings.TrimSuffix(line, "\n")
+				fmt.Printf("%d: %s %s\n", index, op, line)
+			}
+			if df.Type == diffmatchpatch.DiffInsert {
+				nlines += len(lines)
+			}
+		}
+	}
+}
+
+func (gce *gitChangeExec) calculateBaseCommit() {
 	logIter, err := gce.g.Log(&git.LogOptions{})
 	if err != nil {
 		log.Fatalf("getting log failed: %v", err)
@@ -137,11 +288,33 @@ func (gce *gitChangeExec) collectActionsGitTree() {
 		log.Fatalf("getting log for iteration failed: %v", err)
 	}
 
+	var baseCommit *object.Commit
 	err = logIter.ForEach(func(c *object.Commit) error {
 		for _, cb := range commonBase {
 			if c.Hash == cb.Hash {
+				baseCommit = c
 				return storer.ErrStop
 			}
+		}
+		return nil
+	})
+	if err != nil {
+		log.Fatalf("iterating over commits failed: %v", err)
+	}
+	logIter.Close()
+
+	gce.baseCommit = baseCommit
+}
+
+func (gce *gitChangeExec) collectActionsGitTree() {
+	logIter, err := gce.g.Log(&git.LogOptions{})
+	if err != nil {
+		log.Fatalf("getting log for iteration failed: %v", err)
+	}
+
+	err = logIter.ForEach(func(c *object.Commit) error {
+		if c.Hash == gce.baseCommit.Hash {
+			return storer.ErrStop
 		}
 
 		commitStats, err := c.Stats()
@@ -155,11 +328,20 @@ func (gce *gitChangeExec) collectActionsGitTree() {
 
 		return nil
 	})
-	logIter.Close()
-
 	if err != nil {
 		log.Fatalf("iterating over commits failed: %v", err)
 	}
+	logIter.Close()
+
+	/*
+		patch, err := gce.baseCommit.Patch(branchHead)
+		if err == nil {
+			for _, fp := range patch.FilePatches() {
+				handleFilePatch(fp)
+			}
+		}
+	*/
+
 }
 
 func (gce *gitChangeExec) findCommonBase(branchHead *object.Commit) []*object.Commit {
@@ -230,6 +412,7 @@ func (gce *gitChangeExec) addActionByPath(path string) {
 	if path == "" {
 		return
 	}
+	gce.relPaths[path] = struct{}{}
 	fp := filepath.Join(gce.gitPath, path)
 	_, visited := gce.visitedPaths[fp]
 	if visited {

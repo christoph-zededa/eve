@@ -9,6 +9,20 @@ import (
 	"reflect"
 )
 
+type opActionLine uint8
+
+const (
+	opActionLineFullAdd = iota
+	opActionLineFullDel
+	opActionLineAdd
+	opActionLineDel
+)
+
+type actionLine interface {
+	action
+	matchLine(path string, op opActionLine, lineNumber int, line string) bool
+}
+
 type action interface {
 	match(path string) bool
 	do() error
