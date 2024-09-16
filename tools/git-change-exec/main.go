@@ -259,24 +259,6 @@ func (gce *gitChangeExec) diff() {
 func (gce *gitChangeExec) diffPath(path string) {
 	var oldContent string
 
-	/*
-		gce.blameMutex.Lock()
-		blame, err := git.Blame(gce.baseCommit, path)
-		gce.blameMutex.Unlock()
-
-		if err != nil {
-			//		log.Printf("could not blame '%s': %v", path, err)
-			oldContent = ""
-		} else {
-			//		log.Printf("blaming %s\n", path)
-			lines := blame.Lines
-			for _, line := range lines {
-				oldContent += line.Text + "\n"
-			}
-		}
-	*/
-	///
-
 	file, err := gce.baseCommit.File(path)
 	if err == nil {
 		oldContent, err = file.Contents()
@@ -286,12 +268,14 @@ func (gce *gitChangeExec) diffPath(path string) {
 	}
 
 	///
+	parse(path, oldContent)
 
 	bs, err := os.ReadFile(path)
 	if err != nil {
 		log.Printf("could slurp '%s': %v", path, err)
 	}
 	dfs := udiff.Do(oldContent, string(bs))
+	parse(path, string(bs))
 
 	allEqual := true
 	for _, df := range dfs {

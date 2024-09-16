@@ -4,14 +4,13 @@
 package main
 
 import (
-	"fmt"
 	"strings"
 )
 
 type pillarTestAction struct{}
 
 func (b pillarTestAction) matchDiff(path string, ld lineDiff) bool {
-	fmt.Printf("--- %s:%d: %s %s\n", path, ld.lineNumber, ld.op, ld.line)
+	//	fmt.Printf("--- %s:%d: %s %s\n", path, ld.lineNumber, ld.op, ld.line)
 
 	return false
 }
