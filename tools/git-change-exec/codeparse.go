@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"path/filepath"
 
 	sitter "github.com/smacker/go-tree-sitter"
@@ -12,32 +11,15 @@ import (
 	"github.com/smacker/go-tree-sitter/golang"
 )
 
-/*
-	func main() {
-		fmt.Println("dockerfile")
-		runDockerfile()
-
-		fmt.Println("------------")
-		fmt.Println("go")
-		runGo()
-
-		fmt.Println("------------")
-		fmt.Println("cpp")
-		runCpp()
-
-		fmt.Println("------------")
-		fmt.Println("bash")
-		runBash()
-	}
-*/
-func parse(path string, content string) {
+func parse(path string, content string) lineTypes {
 	var lang *sitter.Language
 
-	fmt.Printf(">>>> %s (%d)\n", path, len(content))
 	ext := filepath.Ext(path)
 	switch ext {
 	case ".go":
 		lang = golang.GetLanguage()
+	case ".sh":
+		lang = bash.GetLanguage()
 	case ".cpp":
 		lang = cpp.GetLanguage()
 	}
@@ -47,91 +29,44 @@ func parse(path string, content string) {
 	}
 
 	if lang == nil {
-		//fmt.Printf("lang = nil\n")
-		return
+		return nil
 	}
-	parseWithLang(lang, []byte(content))
+
+	lt := parseWithLang(lang, []byte(content))
+
+	return lt
 }
 
-func runBash() {
-	lang := bash.GetLanguage()
+type lineType uint8
+type lineTypes map[uint32]lineType
 
-	sourceCode := []byte(`
-	#!/usr/bin/env bash
-
-	f() {
-	    # comment
-	    echo "Hello world" # hello world
-	}
-	`)
-
-	parseWithLang(lang, sourceCode)
-}
-
-func runCpp() {
-	lang := cpp.GetLanguage()
-
-	sourceCode := []byte(`
-	#include <iostream>
-
-	void foo() {
-		
-	}
-	int main() {
-		/*
-		 * Print Hello World
-		 */
-		std::cout << "Hello World" << std::endl; // print something
-
-		foo();
-		
-		return 0;
-	}
-	`)
-
-	parseWithLang(lang, sourceCode)
-}
-func runGo() {
-	lang := golang.GetLanguage()
-	sourceCode := []byte(`
-		package main
-
-		import "fmt"
-
-		func main() {
-			f := func(){ fmt.Println("lambda")}
-			// do nothing
-
-			fmt.Println("hello world") // partial comment
-		}
-	`)
-
-	parseWithLang(lang, sourceCode)
-}
-func runDockerfile() {
-	lang := dockerfile.GetLanguage()
-
-	sourceCode := []byte(`
-	FROM ubuntu:latest
-
-	# Update repository
-	RUN apt-get update
-	
-	# Update packages
-	RUN apt-get -y dist-upgrade
-		
-	`)
-
-	parseWithLang(lang, sourceCode)
-}
+const (
+	undecided lineType = iota
+	notComment
+	isComment
+)
 
 type parser struct {
 	sourceCode []byte
+	comments   lineTypes
 }
 
-func parseWithLang(lang *sitter.Language, sourceCode []byte) {
+func (p *parser) notComment(line uint32) {
+	p.comments[line] = notComment
+}
+
+func (p *parser) setComment(line uint32) {
+	state, ok := p.comments[line]
+
+	if !ok || state == undecided {
+		p.comments[line] = isComment
+	}
+}
+
+func parseWithLang(lang *sitter.Language, sourceCode []byte) lineTypes {
 	p := parser{
 		sourceCode: sourceCode,
+		comments:   lineTypes{},
 	}
 	parser := sitter.NewParser()
 	parser.SetLanguage(lang)
@@ -142,32 +77,45 @@ func parseWithLang(lang *sitter.Language, sourceCode []byte) {
 
 	n := tree.RootNode()
 
-	fmt.Println(n)
-
 	p.walk(n)
+
+	return p.comments
 }
 
-func (p parser) walk(n *sitter.Node) {
+func (p *parser) walk(n *sitter.Node) {
 	for i := 0; i < int(n.ChildCount()); i++ {
 		child := n.NamedChild(i)
 		if child == nil {
 			continue
 		}
-		fmt.Printf("%d - %d: %s\n", child.StartPoint().Row, child.EndPoint().Row, child.Type())
 
-		/*
-			if strings.HasPrefix(child.Type(), "function_") {
-				fmt.Printf("\t%v\n", child.Content(p.sourceCode))
+		from := child.StartPoint().Row + 1
+		to := child.EndPoint().Row + 1
+		if child.Type() == "comment" {
+			for i := from; i <= to; i++ {
+				p.setComment(i)
 			}
+		} else {
+			for i := from; i <= to; i++ {
+				p.notComment(i)
+			}
+		}
+		/*
+			content := child.Content(p.sourceCode)
+			content = strings.TrimSpace(content)
+			_ = content
+			fmt.Printf(">>> %s %d-%d: %s\n", child.Type(), from, to, content)
 		*/
 
-		if child.Type() == "identifier" &&
-			(child.Parent().Type() == "function_declarator" || child.Parent().Type() == "function_declaration") {
-			fmt.Printf("\t%v parent: %v\n", child.Content(p.sourceCode), child.Parent().Type())
-		}
-		if child.Type() == "word" && child.Parent().Type() == "function_definition" {
-			fmt.Printf("\t%v parent: %v\n", child.Content(p.sourceCode), child.Parent().Type())
-		}
+		/*
+			if child.Type() == "identifier" &&
+				(child.Parent().Type() == "function_declarator" || child.Parent().Type() == "function_declaration") {
+				fmt.Printf("\t%v parent: %v\n", child.Content(p.sourceCode), child.Parent().Type())
+			}
+			if child.Type() == "word" && child.Parent().Type() == "function_definition" {
+				fmt.Printf("\t%v parent: %v\n", child.Content(p.sourceCode), child.Parent().Type())
+			}
+		*/
 
 		p.walk(child)
 	}

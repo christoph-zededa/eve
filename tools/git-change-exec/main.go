@@ -5,6 +5,7 @@ package main
 
 import (
 	"bufio"
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -45,6 +46,7 @@ type lineDiff struct {
 	op         lineOp
 	line       string
 	lineNumber uint64
+	typeOfLine lineType
 }
 
 type gitChangeExec struct {
@@ -244,16 +246,21 @@ func handleDiff(df diffmatchpatch.Diff) {
 */
 
 func (gce *gitChangeExec) diff() {
-	//	wg := sync.WaitGroup{}
+	//fmt.Printf(">>> diff %+q\n", gce.relPaths)
 	for path := range gce.relPaths {
-		//		wg.Add(1)
-		//		go func(path string) {
+		//fmt.Printf(">>> relpath %s\n", path)
 		gce.diffPath(path)
-		//		wg.Done()
-		//		}(path)
 	}
+}
 
-	// wg.Wait()
+func printLines(ts lineTypes, content string) {
+	lines := strings.Split(content, "\n")
+
+	for i, line := range lines {
+		lineNr := i + 1
+
+		fmt.Printf("1111 %d: %s\t%s\n", lineNr, ts[uint32(lineNr)], line)
+	}
 }
 
 func (gce *gitChangeExec) diffPath(path string) {
@@ -268,14 +275,15 @@ func (gce *gitChangeExec) diffPath(path string) {
 	}
 
 	///
-	parse(path, oldContent)
+	linesOld := parse(path, oldContent)
+	printLines(linesOld, oldContent)
 
 	bs, err := os.ReadFile(path)
 	if err != nil {
 		log.Printf("could slurp '%s': %v", path, err)
 	}
 	dfs := udiff.Do(oldContent, string(bs))
-	parse(path, string(bs))
+	linesNew := parse(path, string(bs))
 
 	allEqual := true
 	for _, df := range dfs {
@@ -305,12 +313,20 @@ func (gce *gitChangeExec) diffPath(path string) {
 			op = lineDel
 		}
 		for i, line := range lines {
+			var typeOfLine lineType
+			if op == lineAdd {
+				typeOfLine = linesNew[uint32(i+1)]
+			}
+			if op == lineDel {
+				typeOfLine = linesOld[uint32(i+1)]
+			}
 			index := nlines + i
 			line = strings.TrimSuffix(line, "\n")
 			ld := lineDiff{
 				op:         op,
 				line:       line,
 				lineNumber: uint64(index),
+				typeOfLine: typeOfLine,
 			}
 			//fmt.Printf("%d: %s %s\n", index, op, line)
 			gce.addActionByLineDiff(path, ld)

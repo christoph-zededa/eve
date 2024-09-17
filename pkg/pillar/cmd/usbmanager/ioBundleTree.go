@@ -36,7 +36,6 @@ func (ibe *ioBundlesElem) ioBundles() []*types.IoBundle {
 		ret = append(ret, ioBundle)
 	}
 
-	sort.Sort(ioBundlesArray(ret))
 
 	return ret
 }
