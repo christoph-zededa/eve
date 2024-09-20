@@ -1,6 +1,6 @@
 module git-change-exec
 
-go 1.22
+go 1.20
 
 require (
 	github.com/go-git/go-git/v5 v5.12.0
