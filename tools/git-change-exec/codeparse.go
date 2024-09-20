@@ -52,10 +52,12 @@ type parser struct {
 }
 
 func (p *parser) notComment(line uint32) {
+	//	fmt.Printf(">>> notComment %d\n", line)
 	p.comments[line] = notComment
 }
 
 func (p *parser) setComment(line uint32) {
+	//	fmt.Printf(">>> setComment %d\n", line)
 	state, ok := p.comments[line]
 
 	if !ok || state == undecided {
@@ -96,8 +98,15 @@ func (p *parser) walk(n *sitter.Node) {
 				p.setComment(i)
 			}
 		} else {
-			for i := from; i <= to; i++ {
-				p.notComment(i)
+			/*
+				for i := from; i <= to; i++ {
+					fmt.Printf("not comments %d-%d, is %s\n", from, to, child.Type())
+					p.notComment(i)
+				}
+			*/
+			if from == to {
+				p.notComment(from)
+
 			}
 		}
 		/*

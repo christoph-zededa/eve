@@ -80,10 +80,11 @@ func main() {
 		actionCategories = append(actionCategories, c)
 	}
 
-	rootCmd := cobra.Command{
+	rootCmd := cobra.Command{}
+	runCmd := cobra.Command{
 		Args: cobra.MinimumNArgs(1),
-		Use:  strings.Join(actionCategories, "|"),
-		Run: func(cmd *cobra.Command, args []string) {
+		Use:  fmt.Sprintf("run %s", strings.Join(actionCategories, "|")),
+		Run: func(_ *cobra.Command, args []string) {
 			gce := newGitChangeExec()
 
 			for _, category := range args {
@@ -133,8 +134,32 @@ func main() {
 
 		},
 	}
+	parseCmd := cobra.Command{
+		Args: cobra.ExactArgs(1),
+		Use:  "parse <path>",
+		Run: func(_ *cobra.Command, args []string) {
+			content, err := os.ReadFile(args[0])
 
-	rootCmd.PersistentFlags().BoolVarP(&dryRun, "dry-run", "d", false, "")
+			if err != nil {
+				log.Fatalf("could not read %s: %v", args[0], err)
+			}
+
+			lts := parse(args[0], string(content))
+
+			lines := strings.Split(string(content), "\n")
+
+			for i, line := range lines {
+				lineNr := i + 1
+				lt := lts[uint32(lineNr)]
+
+				fmt.Printf("%d (%s): %s\n", lineNr, lt.String(), line)
+			}
+		},
+	}
+
+	runCmd.PersistentFlags().BoolVarP(&dryRun, "dry-run", "d", false, "")
+
+	rootCmd.AddCommand(&runCmd, &parseCmd)
 	err := rootCmd.Execute()
 	if err != nil {
 		log.Fatalf("corba failed with: %v", err)
@@ -276,7 +301,7 @@ func (gce *gitChangeExec) diffPath(path string) {
 
 	///
 	linesOld := parse(path, oldContent)
-	printLines(linesOld, oldContent)
+	//printLines(linesOld, oldContent)
 
 	bs, err := os.ReadFile(path)
 	if err != nil {
@@ -297,10 +322,16 @@ func (gce *gitChangeExec) diffPath(path string) {
 	gce.addActionByPath(path)
 
 	//		fmt.Printf(">>> len(oldContent): %d <-> len(newContent): %d\n", len(oldContent), len(bs))
-	nlines := 1
+	nlines := 0
 	for _, df := range dfs {
 		//handleDiff(df)
 		lines := splitLinesRegexp.FindAllString(df.Text, -1)
+		for i, line := range lines {
+
+			line = strings.TrimSuffix(line, "\n")
+
+			fmt.Printf("%v %d+%d: %s\n", df.Type.String(), nlines, i+1, line)
+		}
 		if df.Type == diffmatchpatch.DiffEqual {
 			nlines += len(lines)
 			continue
@@ -313,19 +344,20 @@ func (gce *gitChangeExec) diffPath(path string) {
 			op = lineDel
 		}
 		for i, line := range lines {
+			index := nlines + i + 1
+			lineNr := uint32(index)
 			var typeOfLine lineType
 			if op == lineAdd {
-				typeOfLine = linesNew[uint32(i+1)]
+				typeOfLine = linesNew[lineNr]
 			}
 			if op == lineDel {
-				typeOfLine = linesOld[uint32(i+1)]
+				typeOfLine = linesOld[lineNr]
 			}
-			index := nlines + i
 			line = strings.TrimSuffix(line, "\n")
 			ld := lineDiff{
 				op:         op,
 				line:       line,
-				lineNumber: uint64(index),
+				lineNumber: uint64(lineNr),
 				typeOfLine: typeOfLine,
 			}
 			//fmt.Printf("%d: %s %s\n", index, op, line)
