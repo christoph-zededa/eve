@@ -387,12 +387,19 @@ const qemuRootPortPciPassthruTemplate = `
   addr = "{{printf "0x%x" .PCIId}}"
 `
 
+const qemuPCIPassthruBridgeTemplate = `
+[device "pcie-bridge.{{.PCIId}}"]
+  driver = "pcie-pci-bridge"
+  bus = "pci.{{.Bus}}"
+  addr = "{{printf "0x%x" .PCIId}}"
+`
+
 const qemuPciPassthruTemplate = `
 [device]
   driver = "vfio-pci"
   host = "{{.PciShortAddr}}"
-  bus = "pci.{{.PCIId}}"
-  addr = "0x0"
+  bus = "{{.Bus}}"
+  addr = "{{.Addr}}"
 {{- if .Xvga }}
   x-vga = "on"
 {{- end -}}
@@ -911,7 +918,94 @@ func getFmlCustomResolution(status *types.DomainStatus, globalConfig *types.Conf
 	return "", fmt.Errorf("invalid fml resolution %s", fmlResolutions)
 }
 
-func pciAssignmentsTemplateFill(file io.Writer, pciAssignments []pciDevice, pciID int) error {
+type pciDevicesWithBridge struct {
+	bridgeBus string
+	devs      []*pciDevice
+}
+
+type multifunctionDevs map[string]*pciDevicesWithBridge
+
+func (md multifunctionDevs) isMultiFunction(p pciDevice) bool {
+	devs, found := md[p.pciLongWOFunction()]
+	return found && len(devs.devs) > 1
+}
+
+func (md multifunctionDevs) isFirstMultiFunction(p pciDevice) bool {
+	return md.index(p) == 0
+}
+
+func (md multifunctionDevs) index(p pciDevice) int {
+	pciDevices, found := md[p.pciLongWOFunction()]
+	if !found {
+		return -1
+	}
+
+	for i, dev := range pciDevices.devs {
+		if p.ioType == dev.ioType && p.pciLong == dev.pciLong {
+			return i
+		}
+	}
+
+	return -1
+}
+
+func multifunctionDevGroup(pcis []pciDevice) multifunctionDevs {
+	mds := make(multifunctionDevs)
+
+	for i, pa := range pcis {
+		pciWithoutFunction := pa.pciLongWOFunction()
+
+		_, found := mds[pciWithoutFunction]
+		if !found {
+			mds[pciWithoutFunction] = &pciDevicesWithBridge{
+				bridgeBus: "",
+				devs:      []*pciDevice{},
+			}
+		}
+		mds[pciWithoutFunction].devs = append(mds[pciWithoutFunction].devs, &pcis[i])
+	}
+
+	return mds
+}
+
+func (p pciDevice) pciLongWOFunction() string {
+	pciLongSplit := strings.Split(p.pciLong, ".")
+	if len(pciLongSplit) == 0 {
+		logrus.Warnf("could not split %s", p.pciLong)
+		return ""
+	}
+	pciWithoutFunction := strings.Join(pciLongSplit[0:len(pciLongSplit)-1], ".")
+
+	return pciWithoutFunction
+}
+
+type pciAssignmentsTemplateFiller struct {
+	multifunctionsDevices multifunctionDevs
+	file                  io.Writer
+}
+
+func (f *pciAssignmentsTemplateFiller) pciEBridge(pciID int, pciWOFunction string) error {
+	pciChildTemplateVars := struct {
+		PCIId int
+		Bus   int
+	}{
+		PCIId: 0,
+		Bus:   pciID,
+	}
+
+	tPCIeBridge, err := template.New("qemuPCIeBridge").Parse(qemuPCIPassthruBridgeTemplate)
+	if err != nil {
+		return fmt.Errorf("parsing qemuPCIPassthruBridgeTemplate failed: %w", err)
+	}
+	if err := tPCIeBridge.Execute(f.file, pciChildTemplateVars); err != nil {
+		return logError("can't write PCIe bridge Passthrough to config file (%v)", err)
+	}
+	f.multifunctionsDevices[pciWOFunction].bridgeBus = fmt.Sprintf("pcie-bridge.%d", pciID)
+
+	return nil
+}
+
+func (f *pciAssignmentsTemplateFiller) do(file io.Writer, pciAssignments []pciDevice, pciID int) error {
 	if len(pciAssignments) == 0 {
 		return nil
 	}
@@ -921,13 +1015,15 @@ func pciAssignmentsTemplateFill(file io.Writer, pciAssignments []pciDevice, pciI
 		PciShortAddr string
 		Xvga         bool
 		Xopregion    bool
+		Bus          string
+		Addr         string
 	}{PCIId: pciID, PciShortAddr: "", Xvga: false, Xopregion: false}
 
-	tRootPortPCI, _ := template.New("qemuPciPT").Parse(qemuRootPortPciPassthruTemplate)
-	tPCI, _ := template.New("qemuPciPT").Parse(qemuPciPassthruTemplate)
-	for _, pa := range pciAssignments {
-		short := types.PCILongToShort(pa.pciLong)
+	tPCI, _ := template.New("qemuPCI").Parse(qemuPciPassthruTemplate)
+	for i, pa := range pciAssignments {
 		pciPTContext.Xvga = pa.isVGA()
+		pciPTContext.Bus = fmt.Sprintf("pci.%d", pciPTContext.PCIId)
+		pciPTContext.PciShortAddr = types.PCILongToShort(pa.pciLong)
 
 		if vendor, err := pa.vid(); err == nil {
 			// check for Intel vendor
@@ -940,16 +1036,31 @@ func pciAssignmentsTemplateFill(file io.Writer, pciAssignments []pciDevice, pciI
 			}
 		}
 
-		pciPTContext.PciShortAddr = short
-		if err := tRootPortPCI.Execute(file, pciPTContext); err != nil {
-			return logError("can't write Root Port PCI Passthrough to config file (%v)", err)
+		// for non-multifunction devices, every pci device gets a "pcie-root-port"
+		if !f.multifunctionsDevices.isMultiFunction(pa) || f.multifunctionsDevices.isFirstMultiFunction(pa) {
+			tRootPortPCI, _ := template.New("qemuRootPortPCI").Parse(qemuRootPortPciPassthruTemplate)
+			if err := tRootPortPCI.Execute(file, pciPTContext); err != nil {
+				return logError("can't write Root Port PCI Passthrough to config file (%v)", err)
+			}
+		}
+		if f.multifunctionsDevices.isMultiFunction(pa) {
+			if f.multifunctionsDevices.isFirstMultiFunction(pa) {
+				f.pciEBridge(pciPTContext.PCIId, pa.pciLongWOFunction())
+			}
+
+			pciPTContext.Bus = f.multifunctionsDevices[pa.pciLongWOFunction()].bridgeBus
+			pciPTContext.PCIId = f.multifunctionsDevices.index(pa)
+			pciPTContext.Addr = fmt.Sprintf("0x%x", pciPTContext.PCIId)
+		} else {
+			pciPTContext.Bus = fmt.Sprintf("pci.%d", pciPTContext.PCIId)
+			pciPTContext.Addr = "0x0"
 		}
 		if err := tPCI.Execute(file, pciPTContext); err != nil {
 			return logError("can't write PCI Passthrough to config file (%v)", err)
 		}
 		pciPTContext.Xvga = false
 		pciPTContext.Xopregion = false
-		pciPTContext.PCIId = pciPTContext.PCIId + 1
+		pciPTContext.PCIId = pciID + i + 1
 	}
 
 	return nil
@@ -961,6 +1072,7 @@ func (ctx KvmContext) CreateDomConfig(domainName string,
 	config types.DomainConfig, status types.DomainStatus,
 	diskStatusList []types.DiskStatus, aa *types.AssignableAdapters,
 	globalConfig *types.ConfigItemValueMap, swtpmCtrlSock string, file *os.File) error {
+
 	virtualizationMode := ""
 	bootLoaderSettingsFile, err := getOVMFSettingsFilename(domainName)
 	if err != nil {
@@ -1105,7 +1217,13 @@ func (ctx KvmContext) CreateDomConfig(domainName string,
 			}
 		}
 	}
-	err = pciAssignmentsTemplateFill(file, pciAssignments, netContext.PCIId)
+
+	pciAssignmentsFiller := pciAssignmentsTemplateFiller{
+		multifunctionsDevices: multifunctionDevGroup(pciAssignments),
+		file:                  file,
+	}
+
+	err = pciAssignmentsFiller.do(file, pciAssignments, netContext.PCIId)
 	if err != nil {
 		return fmt.Errorf("writing to template file %s failed: %w", file.Name(), err)
 	}
