@@ -1217,15 +1217,12 @@ func (ctx KvmContext) CreateDomConfig(domainName string,
 		}
 	}
 
-	pciAssignmentsFiller := pciAssignmentsTemplateFiller{
-		multifunctionsDevices: multifunctionDevGroup(pciAssignments),
-		file:                  file,
+	addresses := make([]string, 0, len(pciAssignments))
+	for _, pciAssignment := range pciAssignments {
+		addresses = append(addresses, pciAssignment.pciLong)
 	}
+	writePCIQemuConf(file, addresses, netContext.PCIId)
 
-	err = pciAssignmentsFiller.do(file, pciAssignments, netContext.PCIId)
-	if err != nil {
-		return fmt.Errorf("writing to template file %s failed: %w", file.Name(), err)
-	}
 	if len(serialAssignments) != 0 {
 		serialPortContext := struct {
 			Machine        string
