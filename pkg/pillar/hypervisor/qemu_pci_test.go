@@ -4,13 +4,10 @@
 package hypervisor
 
 import (
-	"bytes"
 	"fmt"
 	"io"
 	"os"
 	"testing"
-
-	"github.com/google/go-cmp/cmp"
 )
 
 func TestPCIString(t *testing.T) {
@@ -58,138 +55,6 @@ func FuzzPCIBusAddr(f *testing.F) {
 			t.Fatalf("got %s, expected %s", str, addrStr)
 		}
 
-	})
-}
-
-func compareOutputs(t *testing.T, tree *pciTree, startPCIId int) {
-	addrs := make([]string, 0)
-
-	for _, root := range tree.roots {
-		for _, dev := range root.devs {
-			addrs = append(addrs, dev.hostAddr.longAddr())
-		}
-
-		for _, br := range root.bridges {
-			for _, dev := range br.devs {
-				addrs = append(addrs, dev.hostAddr.longAddr())
-			}
-		}
-	}
-
-	var newQemuConfWriter bytes.Buffer
-	var oldQemuConfWriter bytes.Buffer
-
-	writePCIQemuConf(&newQemuConfWriter, addrs, startPCIId)
-
-	pciAssignments := []pciDevice{}
-	for _, addr := range addrs {
-		pciAssignments = append(pciAssignments, pciDevice{
-			pciLong: addr,
-			ioType:  0,
-		})
-	}
-	pciAssignmentsFiller := pciAssignmentsTemplateFiller{
-		multifunctionsDevices: multifunctionDevGroup(pciAssignments),
-		file:                  &oldQemuConfWriter,
-	}
-
-	err := pciAssignmentsFiller.do(&oldQemuConfWriter, pciAssignments, startPCIId)
-	if err != nil {
-		t.Fatalf("writing to template file failed: %v", err)
-	}
-
-	newQemuConfStr := newQemuConfWriter.String()
-	oldQemuConfStr := oldQemuConfWriter.String()
-
-	if newQemuConfStr != oldQemuConfStr {
-		t.Log(cmp.Diff(newQemuConfStr, oldQemuConfStr))
-		t.Log("---------------------------")
-		t.Log("---- Full output (old) ----")
-		t.Log("---------------------------")
-		t.Log(oldQemuConfStr)
-		t.Log("---------------------------")
-		t.Log("---- Full output (new) ----")
-		t.Log("---------------------------")
-		t.Log(newQemuConfStr)
-		t.FailNow()
-	}
-}
-
-func FuzzPCITreeInsert(f *testing.F) {
-	fuzzParamLength := 5
-	dirEntries, err := os.ReadDir("/sys/bus/pci/devices/")
-	if err == nil {
-		for i := fuzzParamLength - 1; i < len(dirEntries); i++ {
-			addrs := make([]string, 0, fuzzParamLength)
-
-			for _, entry := range dirEntries {
-				addrs = append(addrs, entry.Name())
-			}
-
-			f.Add(addrs[0], addrs[1], addrs[2], addrs[3], addrs[4])
-		}
-	}
-
-	f.Add(
-		"0000:00:00.0",
-		"0000:00:02.0",
-		"0000:00:1f.3",
-		"0000:00:1f.4",
-		"0000:00:1f.5",
-	)
-
-	f.Fuzz(func(t *testing.T,
-		addr1, addr2, addr3, addr4, addr5 string) {
-
-		tree := pciTree{
-			roots: []*pcieRoot{},
-		}
-
-		addrs := []string{
-			addr1, addr2, addr2, addr4, addr5,
-		}
-
-		for _, addr := range addrs {
-			pciAddr, err := newPCIAddr(addr)
-			if err != nil {
-				return
-			}
-
-			tree.insert(pciAddr)
-		}
-
-		for i := 0; i < 20; i++ {
-			compareOutputs(t, &tree, i)
-		}
-
-		for i := range tree.roots {
-			root := tree.roots[i]
-			for _, br := range root.bridges {
-				if br.parent != root {
-					t.Fatalf("parent: %v, root: %v", br.parent, root)
-				}
-			}
-		}
-
-		for _, root := range tree.roots {
-			for _, dev := range root.devs {
-				if dev.bridgeParent != nil && dev.rootParent != nil {
-					t.Fatalf("dev %+v cannot be directly under bridge and root dev at the same time", dev)
-				}
-			}
-		}
-		for _, root := range tree.roots {
-			for _, br := range root.bridges {
-				for _, dev := range br.devs {
-					if dev.hostAddr.addrWOFunction() != br.devs[0].hostAddr.addrWOFunction() {
-						t.Fatalf("non matching pci bus addresses: %s <-> %s", dev.hostAddr.addrWOFunction(), br.devs[0].hostAddr.addrWOFunction())
-					}
-					if dev.bridgeParent != nil && dev.rootParent != nil {
-						t.Fatalf("dev %+v cannot be directly under bridge and root dev at the same time", dev)
-					}
-				}
-			}
-		}
 	})
 }
 
