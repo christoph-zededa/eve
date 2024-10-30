@@ -2813,73 +2813,17 @@ func expectedMultifunctionDevice() string {
 }
 
 func TestPCIAssignmentsTemplateFillMultifunctionDevice(t *testing.T) {
-	pciAssignments := []pciDevice{
-		{
-			pciLong: "0000:00:0a.0",
-			ioType:  0,
-		},
-		{
-			pciLong: "0000:00:0d.0",
-			ioType:  0,
-		},
-		{
-			pciLong: "0000:00:0b.0",
-			ioType:  0,
-		},
-		{
-			pciLong: "0000:00:0d.2",
-			ioType:  0,
-		},
+	pciAssignments := []string{
+		"0000:00:0a.0",
+		"0000:00:0d.0",
+		"0000:00:0b.0",
+		"0000:00:0d.2",
 	}
 
 	wr := bytes.Buffer{}
-	p := pciAssignmentsTemplateFiller{
-		multifunctionsDevices: multifunctionDevGroup(pciAssignments),
-		file:                  &wr,
-	}
-	p.do(&wr, pciAssignments, 0)
+	writePCIQemuConf(&wr, pciAssignments, 0)
 
 	if wr.String() != expectedMultifunctionDevice() {
 		t.Fatalf("not equal, diff: \n%s\ncomplete:\n%s", cmp.Diff(wr.String(), expectedMultifunctionDevice()), wr.String())
-	}
-}
-
-func TestConvertToMultifunctionPCIDevices(t *testing.T) {
-	pciAssignments := []pciDevice{
-		{
-			pciLong: "0000:00:0d.0",
-			ioType:  0,
-		},
-		{
-			pciLong: "0000:00:aa.8",
-			ioType:  0,
-		},
-		{
-			pciLong: "0000:00:0d.2",
-			ioType:  0,
-		},
-		{
-			pciLong: "0000:00:0d.f",
-			ioType:  0,
-		},
-	}
-
-	mds := multifunctionDevGroup(pciAssignments)
-
-	if len(mds) != 2 {
-		t.Fatalf("expected two multifunction pci assignments, but got %d", len(mds))
-	}
-
-	t.Log(mds)
-	for i, pci := range []string{"0000:00:0d.0", "0000:00:0d.2", "0000:00:0d.f"} {
-		functionPCIDev := mds["0000:00:0d"].devs[i].pciLong
-		if functionPCIDev != pci {
-			t.Logf("expected %s got %s", pci, functionPCIDev)
-			t.Fail()
-		}
-	}
-
-	if len(mds["0000:00:aa"].devs) != 1 {
-		t.Fatal("expected one device")
 	}
 }
