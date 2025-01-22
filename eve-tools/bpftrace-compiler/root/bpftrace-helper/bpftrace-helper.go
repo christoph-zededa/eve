@@ -7,7 +7,6 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"github.com/pmorjan/kmod"
 	"io/fs"
 	"log"
 	"os"
@@ -15,6 +14,9 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+	"text/template"
+
+	"github.com/pmorjan/kmod"
 )
 
 func allWriter() *os.File {
@@ -187,6 +189,14 @@ func main() {
 		if unit == "compile" {
 			bpftraceCompileUnit()
 		}
+		if unit == "compilebpfgen" {
+			split := strings.SplitN(unit, "=", 2)
+			if len(split) != 2 {
+				log.Printf("could not parse %s", unit)
+				break
+			}
+			bpfgenCompileUnit(split[1])
+		}
 		if unit == "shell" {
 			shellUnit()
 		}
@@ -285,6 +295,25 @@ func runBpftraceUnitWithArgs(bpftraceArgs []string) {
 	if err != nil {
 		log.Printf("Cmd Run: %+v", err)
 	}
+}
+
+func bpfgenCompileUnit(exePath string) {
+	var err error
+	bpfbt, err := os.Create("/mnt/bpf.bt")
+	cmdStderrBuf := bytes.Buffer{}
+	cmd := exec.Command("/usr/bin/go-bpf-gen", "/mnt/bpf_tmpl.bt", exePath)
+	cmd.Env = []string{"PATH=/bin:/usr/bin", "LD_LIBRARY_PATH=/lib:/usr/lib:/usr/lib64"}
+	cmd.Stdout = bpfbt
+	cmd.Stderr = &cmdStderrBuf
+
+	err = cmd.Run()
+	if err != nil {
+		log.Printf("Cmd Run: %+v | %+v", err, cmdStderrBuf)
+	}
+
+	bpfbt.Close()
+
+	bpftraceCompileUnit()
 }
 
 func bpftraceCompileUnit() {

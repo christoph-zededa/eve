@@ -33,6 +33,7 @@ type qemuRunner struct {
 	stdout     io.Writer
 	stderr     io.Writer
 	timeout    time.Duration
+	bpfgen     string
 	qemuArchArgs
 }
 
@@ -132,8 +133,14 @@ func (q *qemuRunner) run() ([]byte, error) {
 		return []byte{}, err
 	}
 
-	q.units = append(q.units, "compile")
-	args := q.runArgs(shareDir)
+	var args []string
+	if q.bpfgen == "" {
+		q.units = append(q.units, "compile")
+		args = q.runArgs(shareDir)
+	} else {
+		unit := fmt.Sprintf("compilebpfgen=%s", q.bpfgen)
+		q.units = append(q.units, unit)
+	}
 
 	var stdoutBuf bytes.Buffer
 	var stderrBuf bytes.Buffer

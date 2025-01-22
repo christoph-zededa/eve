@@ -10,7 +10,7 @@ FROM lfedge/eve-bpftrace:64f87b9dfce42524b0364159a6cc3b88ae3445b2 AS eve-bpftrac
 FROM lfedge/eve-alpine:591df01e581889c3027514c8a91feaca1c8ad49f AS bpftrace
 
 # hadolint ignore=DL3018
-RUN apk add --no-cache --initdb make gcc g++ git perl musl-dev cmake zlib-dev bcc-dev libbpf-dev cereal flex bison llvm13-libs llvm13-dev llvm13-static clang-dev clang-static pahole gtest-dev bash
+RUN apk add --no-cache --initdb make gcc g++ git perl musl-dev cmake zlib-dev bcc-dev libbpf-dev cereal flex bison llvm13-libs llvm13-dev llvm13-static clang-dev clang-static pahole gtest-dev bash go
 WORKDIR /
 COPY copy-out.sh /
 RUN mkdir /out
@@ -24,6 +24,12 @@ RUN tar xvf /kernel-headers.tar
 COPY --from=eve-bpftrace /bpftrace/usr/bin/bpftrace /out/usr/bin/bpftrace
 COPY --from=eve-bpftrace /bpftrace-aotrt/ /out
 RUN /copy-out.sh /out/usr/bin/bpftrace /out
+
+WORKDIR /usr/src
+RUN git clone https://github.com/stevenjohnstone/go-bpf-gen.git
+WORKDIR /usr/src/go-bpf-gen
+RUN go build -o /out/usr/bin/go-bpf-gen
+#RUN cp -Rv templates /out/go-bpf-gen-templates
 
 FROM alpine:3.16 AS bpftrace-helper-compile
 # hadolint ignore=DL3018

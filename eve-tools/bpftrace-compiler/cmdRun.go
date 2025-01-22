@@ -24,7 +24,7 @@ type remoteRun interface {
 	end()
 }
 
-func (r *run) run(bpfFile string, uc userspaceContainer, kernelModules []string, timeout time.Duration) {
+func (r *run) run(bpfFile string, bpfgenExe string, uc userspaceContainer, kernelModules []string, timeout time.Duration) {
 	fh, err := os.CreateTemp("/var/tmp", "bpftrace-aot")
 	if err != nil {
 		log.Fatalf("could not create temp file: %v", err)
@@ -35,7 +35,7 @@ func (r *run) run(bpfFile string, uc userspaceContainer, kernelModules []string,
 
 	arch := cleanArch(r.arch())
 	lkConf := r.lkConf()
-	err = compileWithCache(arch, lkConf, uc, kernelModules, bpfFile, outputFile)
+	err = compileWithCache(arch, lkConf, uc, kernelModules, bpfFile, bpfgenExe, outputFile)
 	if err != nil {
 		log.Fatalf("compiling for %s/%s failed: %v", arch, lkConf, err)
 	}
@@ -48,10 +48,10 @@ func (r *run) run(bpfFile string, uc userspaceContainer, kernelModules []string,
 
 }
 
-func compileWithCache(arch string, lkConf lkConf, uc userspaceContainer, kernelModules []string, bpfFile string, outputFile string) error {
+func compileWithCache(arch string, lkConf lkConf, uc userspaceContainer, kernelModules []string, bpfFile string, bpfgenExe string, outputFile string) error {
 	var err error
 	if bpftraceCompilerDir == "" {
-		return compile(arch, lkConf, uc, kernelModules, bpfFile, outputFile)
+		return compile(arch, lkConf, uc, kernelModules, bpfFile, bpfgenExe, outputFile)
 	}
 
 	ucString := ""
@@ -63,12 +63,12 @@ func compileWithCache(arch string, lkConf lkConf, uc userspaceContainer, kernelM
 	if err != nil {
 		return fmt.Errorf("Could not read '%s': %v", bpfFile, err)
 	}
-	hash := hashDir([]string{"root"}, arch, lkConf.String(), ucString, strings.Join(kernelModules, ","), string(bpfFileContent))
+	hash := hashDir([]string{"root"}, arch, lkConf.String(), ucString, strings.Join(kernelModules, ","), string(bpfFileContent), bpfgenExe)
 
 	hashPath := filepath.Join(bpftraceCompilerDir, "cache", hash)
 
 	compileAndStoreInCache := func() error {
-		err := compile(arch, lkConf, uc, kernelModules, bpfFile, outputFile)
+		err := compile(arch, lkConf, uc, kernelModules, bpfFile, bpfgenExe, outputFile)
 		if err != nil {
 			return err
 		}
@@ -95,7 +95,7 @@ func compileWithCache(arch string, lkConf lkConf, uc userspaceContainer, kernelM
 	return nil
 }
 
-func compile(arch string, lkConf lkConf, uc userspaceContainer, kernelModules []string, bpfFile string, outputFile string) error {
+func compile(arch string, lkConf lkConf, uc userspaceContainer, kernelModules []string, bpfFile string, bpfgenExe string, outputFile string) error {
 	arch = cleanArch(arch)
 	imageDir, err := os.MkdirTemp("/var/tmp", "bpftrace-image")
 	if err != nil {
@@ -107,6 +107,8 @@ func compile(arch string, lkConf lkConf, uc userspaceContainer, kernelModules []
 	qr := newQemuRunner(arch, imageDir, bpfFile, outputFile)
 
 	qr.withLoadKernelModule(kernelModules)
+
+	qr.bpfgenExe = bpfgenExe
 
 	qemuOutput, err := qr.run()
 	if err != nil {
