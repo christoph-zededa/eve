@@ -17,7 +17,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -69,10 +68,6 @@ const (
 
 // Really a constant
 var nilUUID = uuid.UUID{}
-
-// Information related to VGA access
-var vgaSwitch = false
-var currentTTY = 0
 
 func isPort(ctx *domainContext, ifname string) bool {
 	ctx.dnsLock.Lock()
@@ -134,6 +129,8 @@ type domainContext struct {
 	// Is it kubevirt eve
 	hvTypeKube bool
 	nodeName   string
+	// Information related to VGA access
+	currentTTY int
 }
 
 // AddAgentSpecificCLIFlags adds CLI options
@@ -471,7 +468,7 @@ func Run(ps *pubsub.PubSub, loggerArg *logrus.Logger, logArg *base.LogObject, ar
 		log.Functionf("GCComplete but not setInitialVgaAccess => first boot")
 		// Enable VGA
 		domainCtx.vgaAccess = true
-		updateVgaAccess(&domainCtx)
+		enableVgaAccess(&domainCtx)
 		domainCtx.setInitialVgaAccess = true
 	}
 
@@ -2506,7 +2503,15 @@ func handleDelete(ctx *domainContext, key string, status *types.DomainStatus) {
 
 	// Check if the USB controller became available for dom0
 	updateUsbAccess(ctx)
-	updateVgaAccess(ctx)
+
+	gcp := agentlog.GetGlobalConfig(log, ctx.subGlobalConfig)
+	if gcp.GlobalValueBool(types.VgaAccess) != ctx.vgaAccess {
+		if ctx.vgaAccess {
+			enableVgaAccess(ctx)
+		} else {
+			disableVgaAccess(ctx)
+		}
+	}
 
 	// Delete xen cfg file for good measure
 	filename := xenCfgFilename(status.AppNum)
@@ -2675,7 +2680,11 @@ func handleGlobalConfigImpl(ctxArg interface{}, key string,
 			!ctx.setInitialVgaAccess {
 
 			ctx.vgaAccess = gcp.GlobalValueBool(types.VgaAccess)
-			updateVgaAccess(ctx)
+			if ctx.vgaAccess {
+				enableVgaAccess(ctx)
+			} else {
+				disableVgaAccess(ctx)
+			}
 			ctx.setInitialVgaAccess = true
 		}
 		if gcp.GlobalValueBool(types.ConsoleAccess) != ctx.consoleAccess ||
@@ -3477,84 +3486,46 @@ func updateUsbAccess(ctx *domainContext) {
 	checkIoBundleAll(ctx)
 }
 
-func updateVgaAccess(ctx *domainContext) {
+func enableVgaAccess(ctx *domainContext) {
+	log.Functionf("%t", ctx.vgaAccess)
 
-	log.Functionf("updateVgaAccess(%t)", ctx.vgaAccess)
+	// If VGA is disabled, we need to first bring any VGA PCIe adapter back
+	updatePortAndPciBackIoBundleAll(ctx)
+	checkIoBundleAll(ctx)
 
-	if ctx.vgaAccess {
-		// If VGA is disabled, we need to first bring any VGA PCIe adapter back
-		updatePortAndPciBackIoBundleAll(ctx)
-		checkIoBundleAll(ctx)
+	if err := rebindFramebufferDrivers(); err != nil {
+		log.Errorf("Cannot bind framebuffer drivers: %v", err)
+	}
+	if err := restoreActivatedVTs(); err != nil {
+		log.Errorf("Cannot bind Virtual Terminals: %v", err)
+	}
+	// Switch back to the last active TTY
+	if err := chvt(ctx.currentTTY); err != nil {
+		log.Errorf("Cannot switch to VT: %v", err)
+	}
 
-		// Nothing to do if VGA is already enabled
-		if vgaSwitch {
-			// VGA access was set to true and it was disabled before, so we
-			// need to perform the "switch VGA back" operations:
-			//
-			// 1. Re-bind framebuffer drivers
-			// 2. Restore activated VTs
-			// 3. Switch back to the last active TTY
-			if err := fbBindAll(); err != nil {
-				log.Errorf("Cannot bind framebuffer drivers: %v", err)
-			}
-			if err := vtBindAll(); err != nil {
-				log.Errorf("Cannot bind Virtual Terminals: %v", err)
-			}
-			if err := chvt(currentTTY); err != nil {
-				log.Errorf("Cannot switch to VT: %v", err)
-			}
-			vgaSwitch = false
-		}
+	return
+}
 
-		return
-	} else {
-		if !vgaSwitch {
-			// Get active TTY, in case of error just consider tty2 which is
-			// the one used by TUI Monitor
-			ttyDev, err := getActiveTTY()
-			if err != nil {
-				log.Errorf("Fail to get active TTY: %v", err)
-				currentTTY = 2
-			} else {
-				re := regexp.MustCompile("tty([0-9]+)")
-				match := re.FindStringSubmatch(ttyDev)
-				if len(match) != 2 {
-					log.Errorf("Fail to get active TTY index")
-					currentTTY = 2
-				} else {
-					index, err := strconv.Atoi(match[1])
-					if err != nil {
-						log.Errorf("Fail to get active TTY index: %v", err)
-						currentTTY = 2
-					} else {
-						currentTTY = index
-					}
-				}
-			}
+func disableVgaAccess(ctx *domainContext) {
+	ctx.currentTTY = guessCurrentTty()
 
-			// Perform the following operations to "disable" VGA:
-			// 1. Switch to the next free Virtual Terminal (VT), so screen
-			// goes black
-			// 2. Detach all active VTs
-			// 3. Unbind all framebuffer drivers
-			freeVT, err := findFreeVT()
-			if err != nil {
-				// In case of error, just use a higher VT
-				log.Errorf("Cannot find a free VT: %v", err)
-				freeVT = 9
-			}
-			if err := chvt(freeVT); err != nil {
-				log.Errorf("Cannot switch to VT: %v", err)
-			}
-			if err := vtUnbindAll(); err != nil {
-				log.Errorf("Cannot unbind Virtual Terminals: %v", err)
-			}
-			if err := fbUnbindAll(); err != nil {
-				log.Errorf("Cannot unbind framebuffer drivers: %v", err)
-			}
-
-			vgaSwitch = true
-		}
+	freeVT, err := findFreeVT()
+	if err != nil {
+		// In case of error, just use a higher VT
+		log.Errorf("Cannot find a free VT: %v", err)
+		freeVT = 9
+	}
+	// Switch to the next free Virtual Terminal (VT), so screen
+	// goes black
+	if err := chvt(freeVT); err != nil {
+		log.Errorf("Cannot switch to VT: %v", err)
+	}
+	if err := detachAllActiveVTs(); err != nil {
+		log.Errorf("Cannot unbind Virtual Terminals: %v", err)
+	}
+	if err := unbindAllFramebufferDrivers(); err != nil {
+		log.Errorf("Cannot unbind framebuffer drivers: %v", err)
 	}
 
 	updatePortAndPciBackIoBundleAll(ctx)
