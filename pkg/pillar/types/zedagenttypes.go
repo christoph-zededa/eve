@@ -779,3 +779,5 @@ type LOCConfig struct {
 	// Collect-Info Datastore UUID
 	CollectInfoDatastore DatastoreConfig
 }
+
+type CollectInfoCmd struct{}

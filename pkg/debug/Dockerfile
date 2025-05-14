@@ -109,6 +109,10 @@ RUN mkdir -p /out/etc/ssh
 COPY ssh/* /out/etc/ssh/
 RUN mkdir -p /out/var/empty
 
+ADD https://hoefler.dev/articles/attachments/crash.c /tmp
+WORKDIR /tmp
+RUN gcc crash.c -o /out/crash
+
 # tweaking various bit
 WORKDIR /out
 COPY debug-services.sh ssh-service.sh edgeview-collectinfo.sh spec.sh scripts/ ./usr/bin/

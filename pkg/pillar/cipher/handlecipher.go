@@ -8,9 +8,11 @@ import (
 	"crypto/ecdsa"
 	"crypto/sha256"
 	"crypto/x509"
+	"encoding/hex"
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"os"
 
 	zcommon "github.com/lf-edge/eve-api/go/evecommon"
 	"github.com/lf-edge/eve/pkg/pillar/base"
@@ -91,7 +93,8 @@ func DecryptCipherBlock(ctx *DecryptCipherContext,
 			return []byte{}, err
 		}
 		if ret := validateDataHash(clearData, cipherBlock.ClearTextHash); !ret {
-			return []byte{}, errors.New("Data Validation Failed")
+			fmt.Fprintf(os.Stderr, "AAAAA Data Validation Failed, clear data is: %+v (%s), hash is: %s", clearData, string(clearData), hex.EncodeToString(cipherBlock.ClearTextHash))
+			return []byte{}, fmt.Errorf("Data Validation Failed, clear data is: %+v, hash is: %s", clearData, hex.EncodeToString(cipherBlock.ClearTextHash))
 		}
 		return clearData, nil
 	}
