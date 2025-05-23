@@ -262,7 +262,7 @@ QEMU_OPTS_COMMON= -m $(QEMU_MEMORY) -smp 12 -display none $(QEMU_OPTS_BIOS) \
         -serial mon:stdio      \
 	-global ICH9-LPC.noreboot=false -watchdog-action none \
         -rtc base=utc,clock=rt \
-        -netdev user,id=eth0,net=$(QEMU_OPTS_NET1),dhcpstart=$(QEMU_OPTS_NET1_FIRST_IP),hostfwd=tcp::$(SSH_PORT)-:22$(QEMU_TFTP_OPTS) -device virtio-net-pci,netdev=eth0,romfile="" \
+        -netdev user,id=eth0,net=$(QEMU_OPTS_NET1),dhcpstart=$(QEMU_OPTS_NET1_FIRST_IP),hostfwd=tcp::$(SSH_PORT)-:22$(QEMU_TFTP_OPTS),dns=0.0.0.0 -device virtio-net-pci,netdev=eth0,romfile="" \
 	$(QEMU_OPTS_eth1) \
         -device nec-usb-xhci,id=xhci \
         -qmp unix:$(CURDIR)/qmp.sock,server,wait=off
