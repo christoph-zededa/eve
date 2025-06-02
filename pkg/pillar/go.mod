@@ -256,6 +256,8 @@ require (
 )
 
 replace (
+
+	github.com/mitchellh/osext => github.com/kardianos/osext v0.0.0-20190222173326-2bc1f35cddc0
 	github.com/openshift/api => github.com/openshift/api v0.0.0-20210105115604-44119421ec6b
 
 	k8s.io/api => k8s.io/api v0.26.3
