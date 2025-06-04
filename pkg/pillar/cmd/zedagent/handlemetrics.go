@@ -1674,7 +1674,7 @@ func sendHardwareHealthProtobuf(ctx *getconfigContext,
 	locConfig := ctx.sideController.locConfig
 
 	// Repeat hardwarehealth for LOC as well
-	if locConfig != nil {
+	if locConfig != nil && locConfig.LocURL != "" {
 		// Don't block current execution context
 		go func() {
 			url := zedcloud.URLPathString(locConfig.LocURL, zedcloudCtx.V2API,
