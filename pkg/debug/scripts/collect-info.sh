@@ -50,10 +50,11 @@ usage()
     echo "       -a APPLICATION-UUID  - read specified application logs only"
     echo "       -e                   - additional edgeview string in filename"
     echo "       -j                   - output logs in json"
+    echo "       -u server            - upload logs via http to server with credentials in AUTHORIZATION environment variable"
     exit 1
 }
 
-while getopts "vhsa:djet:" o; do
+while getopts "vu:hsa:djet:" o; do
     case "$o" in
         h)
             usage
@@ -83,6 +84,9 @@ while getopts "vhsa:djet:" o; do
             ;;
         j)
             OUT_LOGS_IN_JSON=1
+            ;;
+        u)
+            UPLOAD="$OPTARG"
             ;;
         :)
             usage
@@ -520,4 +524,11 @@ sync
 
 echo "- done"
 echo
-echo "EVE info is collected '$TARBALL_FILE'"
+echo "EVE info is collected into '$TARBALL_FILE'"
+
+if [ -n "$UPLOAD" ];
+then
+    echo "Uploading tarball to $UPLOAD"
+    curl -d @"$TARBALL_FILE" -H "Authorization: $AUTHORIZATION" "$UPLOAD"
+    echo "Uploading tarball to $UPLOAD done"
+fi
