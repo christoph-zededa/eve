@@ -3,7 +3,12 @@
 
 package types
 
-import "strings"
+import (
+	"fmt"
+	"os"
+	"strings"
+	"time"
+)
 
 const (
 	// TmpDirname - used for files fed into pubsub as global subscriptions
@@ -47,7 +52,7 @@ const (
 	// IdentityDirname - Config dir
 	IdentityDirname = "/config"
 	// ServerFileName - server file
-	ServerFileName = IdentityDirname + "/server"
+	serverFileName = IdentityDirname + "/server"
 	// DeviceCertName - device certificate
 	DeviceCertName = IdentityDirname + "/device.cert.pem"
 	// DeviceKeyName - device private key (if not in TPM)
@@ -166,3 +171,47 @@ var (
 	// EtcdZvol - zvol encrypted for etcd storage
 	EtcdZvol = PersistDataset + "/etcd-storage"
 )
+
+func ServerFileName() string {
+	return serverFileName
+}
+
+func Server() (string, error) {
+	bs, err := os.ReadFile(ServerFileName())
+	server := string(bs)
+	server = strings.TrimSpace(server)
+
+	return server, err
+}
+
+type errAndWarnLogger interface {
+	Error(args ...interface{})
+	Warnf(format string, args ...interface{})
+}
+
+func WaitServer(log errAndWarnLogger, stillRunning func()) string {
+	for {
+		s, err := Server()
+		if err != nil {
+			log.Error(err)
+		}
+
+		if len(s) != 0 {
+			return s
+		}
+
+		log.Warnf("Empty %s file - waiting for it",
+			ServerFileName())
+
+		stillRunning()
+		time.Sleep(10 * time.Second)
+	}
+}
+
+func WriteServer(newServer string) error {
+	if err := os.WriteFile(ServerFileName(), []byte(newServer), 0644); err != nil {
+		return fmt.Errorf("failed to update server config: %v", err)
+	}
+
+	return nil
+}
