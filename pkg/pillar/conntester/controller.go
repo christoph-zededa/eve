@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"strings"
 	"syscall"
 	"time"
 
@@ -160,13 +159,13 @@ type connectivityTestRV struct {
 func (t *ControllerConnectivityTester) testControllerConnectivity(
 	connTest connTestSetup) (rv connectivityTestRV) {
 	if t.controllerHostname == "" {
-		server, err := os.ReadFile(types.ServerFileName)
+		server, err := types.Server()
 		if err != nil {
 			rv.testErr = fmt.Errorf("controller hostname is not available: %w", err)
 			t.Log.Error(rv.testErr)
 			return rv
 		}
-		t.controllerHostname = strings.TrimSpace(string(server))
+		t.controllerHostname = server
 	}
 	testURL := controllerconn.URLPathString(
 		t.controllerHostname, connTest.ctrlClient.UsingV2API(), nilUUID, "ping")
