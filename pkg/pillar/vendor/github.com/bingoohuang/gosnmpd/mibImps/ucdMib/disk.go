@@ -1,0 +1,120 @@
+package ucdMib
+
+import (
+	"fmt"
+
+	"github.com/bingoohuang/gosnmpd"
+	"github.com/shirou/gopsutil/disk"
+	"github.com/slayercat/gosnmp"
+)
+
+// NameOverride configs what path disk usage will returns.
+type NameOverride struct {
+	// RealPath in this pc.
+	RealPath string
+
+	// ShowName indicate what will it show in oid:
+	//    in currentDskPath   1.3.6.1.4.1.2021.9.1.2.xxx
+	//       currentDskDevice 1.3.6.1.4.1.2021.9.1.3.xxx
+	ShowName string
+}
+
+// DiskUsageOIDs Returns a list of disk usages.
+//
+//	Args:
+//	    showTheseNameOnly:  what path whill this oid returns. empty means all.
+//	see http://www.net-snmp.org/docs/mibs/ucdavis.html#DisplayString
+func DiskUsageOIDs(showTheseNameOnly ...NameOverride) []*gosnmpd.PDUValueControlItem {
+	if len(showTheseNameOnly) == 0 {
+		partitionStats, err := disk.Partitions(false)
+		if err != nil {
+			g_Logger.Errorf("Load partitionStats failed, err=%v", err)
+			return []*gosnmpd.PDUValueControlItem{}
+		}
+		for _, val := range partitionStats {
+			showTheseNameOnly = append(showTheseNameOnly, NameOverride{
+				RealPath: val.Mountpoint,
+				ShowName: val.Mountpoint,
+			})
+		}
+	}
+	var toRet []*gosnmpd.PDUValueControlItem
+	for id, each := range showTheseNameOnly {
+		cid := id + 1
+		currentDiskItem := each
+		thisDiskID := []*gosnmpd.PDUValueControlItem{
+			{
+				OID:      fmt.Sprintf("1.3.6.1.4.1.2021.9.1.1.%d", cid),
+				Type:     gosnmp.Integer,
+				OnGet:    func() (value interface{}, err error) { return gosnmpd.Asn1IntegerWrap(cid), nil },
+				Document: "dskIndex",
+			},
+			{
+				OID:  fmt.Sprintf("1.3.6.1.4.1.2021.9.1.2.%d", cid),
+				Type: gosnmp.OctetString,
+				OnGet: func() (value interface{}, err error) {
+					return gosnmpd.Asn1OctetStringWrap(currentDiskItem.ShowName), nil
+				},
+				Document: "currentDskPath",
+			},
+			{
+				OID:  fmt.Sprintf("1.3.6.1.4.1.2021.9.1.3.%d", cid),
+				Type: gosnmp.OctetString,
+				OnGet: func() (value interface{}, err error) {
+					return gosnmpd.Asn1OctetStringWrap(currentDiskItem.ShowName), nil
+				},
+				Document: "currentDskDevice",
+			},
+			{
+				OID:  fmt.Sprintf("1.3.6.1.4.1.2021.9.1.6.%d", cid),
+				Type: gosnmp.Integer,
+				OnGet: func() (value interface{}, err error) {
+					data, err := disk.Usage(currentDiskItem.RealPath)
+					if err != nil {
+						return nil, err
+					}
+					return gosnmpd.Asn1IntegerWrap(int(data.Total / 1024 / 1024)), nil
+				},
+				Document: "currentDskTotal",
+			},
+			{
+				OID:  fmt.Sprintf("1.3.6.1.4.1.2021.9.1.7.%d", cid),
+				Type: gosnmp.Integer,
+				OnGet: func() (value interface{}, err error) {
+					data, err := disk.Usage(currentDiskItem.RealPath)
+					if err != nil {
+						return nil, err
+					}
+					return gosnmpd.Asn1IntegerWrap(int(data.Free / 1024 / 1024)), nil
+				},
+				Document: "currentDskAvail",
+			},
+			{
+				OID:  fmt.Sprintf("1.3.6.1.4.1.2021.9.1.8.%d", cid),
+				Type: gosnmp.Integer,
+				OnGet: func() (value interface{}, err error) {
+					data, err := disk.Usage(currentDiskItem.RealPath)
+					if err != nil {
+						return nil, err
+					}
+					return gosnmpd.Asn1IntegerWrap(int(data.Used / 1024 / 1024)), nil
+				},
+				Document: "currentDskUsed",
+			},
+			{
+				OID:  fmt.Sprintf("1.3.6.1.4.1.2021.9.1.9.%d", cid),
+				Type: gosnmp.Integer,
+				OnGet: func() (value interface{}, err error) {
+					data, err := disk.Usage(currentDiskItem.RealPath)
+					if err != nil {
+						return nil, err
+					}
+					return gosnmpd.Asn1IntegerWrap(int(data.UsedPercent)), nil
+				},
+				Document: "currentDskPercent",
+			},
+		}
+		toRet = append(toRet, thisDiskID...)
+	}
+	return toRet
+}

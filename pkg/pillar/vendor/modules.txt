@@ -255,6 +255,13 @@ github.com/aws/smithy-go/waiter
 github.com/beorn7/perks/quantile
 # github.com/bicomsystems/go-libzfs v0.4.0
 ## explicit; go 1.13
+# github.com/bingoohuang/gosnmpd v0.0.0-20221104032659-a9fd767b3eb9
+## explicit; go 1.19
+github.com/bingoohuang/gosnmpd
+github.com/bingoohuang/gosnmpd/mibImps
+github.com/bingoohuang/gosnmpd/mibImps/dismanEventMib
+github.com/bingoohuang/gosnmpd/mibImps/ifMib
+github.com/bingoohuang/gosnmpd/mibImps/ucdMib
 # github.com/bugsnag/bugsnag-go v1.4.1
 ## explicit
 # github.com/bugsnag/panicwrap v1.2.0
@@ -756,8 +763,6 @@ github.com/k8snetworkplumbingwg/network-attachment-definition-client/pkg/apis/k8
 github.com/k8snetworkplumbingwg/network-attachment-definition-client/pkg/client/clientset/versioned
 github.com/k8snetworkplumbingwg/network-attachment-definition-client/pkg/client/clientset/versioned/scheme
 github.com/k8snetworkplumbingwg/network-attachment-definition-client/pkg/client/clientset/versioned/typed/k8s.cni.cncf.io/v1
-# github.com/kardianos/osext v0.0.0-20190222173326-2bc1f35cddc0
-## explicit
 # github.com/klauspost/compress v1.17.6
 ## explicit; go 1.19
 github.com/klauspost/compress
@@ -1011,6 +1016,7 @@ github.com/shirou/gopsutil/cpu
 github.com/shirou/gopsutil/disk
 github.com/shirou/gopsutil/host
 github.com/shirou/gopsutil/internal/common
+github.com/shirou/gopsutil/load
 github.com/shirou/gopsutil/mem
 github.com/shirou/gopsutil/net
 github.com/shirou/gopsutil/process
@@ -1020,6 +1026,9 @@ github.com/shjala/gostats
 # github.com/sirupsen/logrus v1.9.3
 ## explicit; go 1.13
 github.com/sirupsen/logrus
+# github.com/slayercat/gosnmp v1.24.1
+## explicit; go 1.11
+github.com/slayercat/gosnmp
 # github.com/spf13/cobra v1.8.0
 ## explicit; go 1.15
 github.com/spf13/cobra
@@ -1043,10 +1052,10 @@ github.com/ti-mo/conntrack
 # github.com/ti-mo/netfilter v0.5.3
 ## explicit; go 1.23.0
 github.com/ti-mo/netfilter
-# github.com/tklauser/go-sysconf v0.3.11
+# github.com/tklauser/go-sysconf v0.3.12
 ## explicit; go 1.13
 github.com/tklauser/go-sysconf
-# github.com/tklauser/numcpus v0.6.0
+# github.com/tklauser/numcpus v0.6.1
 ## explicit; go 1.13
 github.com/tklauser/numcpus
 # github.com/vbatts/tar-split v0.11.2

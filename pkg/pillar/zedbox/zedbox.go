@@ -34,6 +34,7 @@ import (
 	"github.com/lf-edge/eve/pkg/pillar/cmd/nim"
 	"github.com/lf-edge/eve/pkg/pillar/cmd/nodeagent"
 	"github.com/lf-edge/eve/pkg/pillar/cmd/pbuf"
+	"github.com/lf-edge/eve/pkg/pillar/cmd/snmp"
 	"github.com/lf-edge/eve/pkg/pillar/cmd/tpmmgr"
 	"github.com/lf-edge/eve/pkg/pillar/cmd/upgradeconverter"
 	"github.com/lf-edge/eve/pkg/pillar/cmd/usbmanager"
@@ -113,6 +114,7 @@ var (
 		"collectinfo":      {f: collectinfo.Run},
 		"vcomlink":         {f: vcomlink.Run},
 		"monitor":          {f: monitor.Run},
+		"snmp":             {f: snmp.Run},
 	}
 	logger *logrus.Logger
 	log    *base.LogObject
