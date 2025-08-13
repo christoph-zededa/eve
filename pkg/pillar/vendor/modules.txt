@@ -756,8 +756,6 @@ github.com/k8snetworkplumbingwg/network-attachment-definition-client/pkg/apis/k8
 github.com/k8snetworkplumbingwg/network-attachment-definition-client/pkg/client/clientset/versioned
 github.com/k8snetworkplumbingwg/network-attachment-definition-client/pkg/client/clientset/versioned/scheme
 github.com/k8snetworkplumbingwg/network-attachment-definition-client/pkg/client/clientset/versioned/typed/k8s.cni.cncf.io/v1
-# github.com/kardianos/osext v0.0.0-20190222173326-2bc1f35cddc0
-## explicit
 # github.com/klauspost/compress v1.17.6
 ## explicit; go 1.19
 github.com/klauspost/compress
@@ -781,7 +779,7 @@ github.com/leodido/go-urn
 github.com/lf-edge/edge-containers/pkg/registry
 github.com/lf-edge/edge-containers/pkg/resolver
 github.com/lf-edge/edge-containers/pkg/tgz
-# github.com/lf-edge/eve-api/go v0.0.0-20250722142628-6e701eb3256b
+# github.com/lf-edge/eve-api/go v0.0.0-20250722142628-6e701eb3256b => /home/christoph/projects/eve-api/go
 ## explicit; go 1.20
 github.com/lf-edge/eve-api/go/attest
 github.com/lf-edge/eve-api/go/auth
@@ -1880,6 +1878,7 @@ tags.cncf.io/container-device-interface/pkg/parser
 # tags.cncf.io/container-device-interface/specs-go v0.8.0
 ## explicit; go 1.19
 tags.cncf.io/container-device-interface/specs-go
+# github.com/lf-edge/eve-api/go => /home/christoph/projects/eve-api/go
 # github.com/openshift/api => github.com/openshift/api v0.0.0-20210105115604-44119421ec6b
 # k8s.io/api => k8s.io/api v0.26.3
 # k8s.io/apiextensions-apiserver => k8s.io/apiextensions-apiserver v0.26.3
@@ -1907,3 +1906,4 @@ tags.cncf.io/container-device-interface/specs-go
 # k8s.io/sample-apiserver => k8s.io/sample-apiserver v0.26.3
 # k8s.io/sample-cli-plugin => k8s.io/sample-cli-plugin v0.26.3
 # k8s.io/sample-controller => k8s.io/sample-controller v0.26.3
+# github.com/mitchellh/osext => github.com/kardianos/osext v0.0.0-20190222173326-2bc1f35cddc0
