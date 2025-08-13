@@ -79,7 +79,7 @@ func parseConfig(getconfigCtx *getconfigContext, config *zconfig.EdgeDevConfig,
 
 	// Prepare LOC structure before everything to be ready to
 	// publish info
-	publishLocConfig(getconfigCtx, config)
+	publishAndSetLocConfig(getconfigCtx, config)
 
 	// Look for timers and other settings in configItems
 	// Process Config items even when configProcessingSkipFlagReboot is set.
@@ -3105,9 +3105,17 @@ func isLocConfigValid(locConfig *zconfig.LOCConfig) bool {
 	return err == nil
 }
 
-// publishLocConfig() - assign LOC config only if URL is valid and publish
-func publishLocConfig(getconfigCtx *getconfigContext,
+// publishAndSetLocConfig() - assign LOC config only if URL is valid and publish
+func publishAndSetLocConfig(getconfigCtx *getconfigContext,
 	config *zconfig.EdgeDevConfig) {
+
+	getconfigCtx.sideController.locInfo.DeviceName = config.GetDeviceName()
+
+	getconfigCtx.sideController.locInfo.EnterpriseId = config.GetEnterpriseId()
+	getconfigCtx.sideController.locInfo.EnterpriseName = config.GetEnterpriseName()
+	getconfigCtx.sideController.locInfo.ProjectId = config.GetProjectId()
+	getconfigCtx.sideController.locInfo.ProjectName = config.GetProjectName()
+
 	locConfig := config.GetLocConfig()
 	if locConfig == nil || !isLocConfigValid(locConfig) {
 		getconfigCtx.sideController.locConfig = nil

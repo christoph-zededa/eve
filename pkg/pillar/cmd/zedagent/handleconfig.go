@@ -18,6 +18,7 @@ import (
 
 	zauth "github.com/lf-edge/eve-api/go/auth"
 	zconfig "github.com/lf-edge/eve-api/go/config"
+	"github.com/lf-edge/eve-api/go/info"
 	"github.com/lf-edge/eve-libs/nettrace"
 	"github.com/lf-edge/eve/pkg/pillar/base"
 	"github.com/lf-edge/eve/pkg/pillar/cipher"
@@ -114,6 +115,7 @@ type getconfigContext struct {
 	pubEdgeNodeInfo            pubsub.Publication
 	pubPatchEnvelopeInfo       pubsub.Publication
 	subPatchEnvelopeStatus     pubsub.Subscription
+	subZiLOCSend               pubsub.Subscription
 	subCachedResolvedIPs       pubsub.Subscription
 	NodeAgentStatus            *types.NodeAgentStatus
 	configProcessingRV         configProcessingRetval
@@ -156,7 +158,12 @@ type getconfigContext struct {
 		// localCommands : list of commands requested from a local server.
 		// This information is persisted under /persist/checkpoint/localcommands
 		localCommands *types.LocalCommands
+
+		locInfo     info.ZInfoLOC
+		sentLocInfo string
 	}
+
+	triggerLOCInfo chan struct{}
 
 	configRetryUpdateCounter uint32 // received from config
 
@@ -878,6 +885,11 @@ func getLatestConfig(getconfigCtx *getconfigContext, iteration int,
 
 	rv, tracedReqs := requestConfigByURL(getconfigCtx, url, false,
 		iteration, withNetTracing, getconfigCtx.zedagentCtx.airgapMode)
+
+	// TODO: send info msg here!!!
+	//
+	// getconfigCtx.zedagentCtx.sendZiLOCInfo()
+	getconfigCtx.zedagentCtx.triggerLOCInfo <- struct{}{}
 
 	// Request configuration from the LOC
 	if needRequestLocConfig(getconfigCtx, rv) {

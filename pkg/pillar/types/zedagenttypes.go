@@ -786,3 +786,8 @@ type LOCConfig struct {
 type CollectInfoCmd struct {
 	Time time.Time
 }
+
+// ZiLOCSendCmd : trigger sending ZiLOC info message to LOC
+type ZiLOCSendCmd struct {
+	Time time.Time
+}

@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # Interactive mode for the installer
-FROM --platform=$BUILDPLATFORM lfedge/eve-rust:1.84.1 AS rust-host
+FROM --platform=$BUILDPLATFORM lfedge/eve-rust:1.85.1-1 AS rust-host
 ARG TARGETARCH
 
 # map Docker's $TARGETARCH to Rust target
@@ -29,7 +29,7 @@ RUN cargo sbom > sbom.spdx.json
 RUN cp "/usr/local/my-installer/target/$CARGO_BUILD_TARGET/release/installer" /usr/local/my-installer/target/installer
 
 # Dockerfile to build installer img initrd
-FROM lfedge/eve-alpine:0f2e0da38e30753c68410727a6cc269e57ff74f2 AS build
+FROM lfedge/eve-alpine:e799def68af51dba83ec5a41f34bd0109704574f AS build
 SHELL ["/bin/ash", "-eo", "pipefail", "-c"]
 ENV BUILD_PKGS="mkinitfs grep patch make coreutils musl-dev gcc g++ perl \
     autoconf automake libtool file bsd-compat-headers libc-dev \

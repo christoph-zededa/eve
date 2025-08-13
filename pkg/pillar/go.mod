@@ -298,6 +298,7 @@ replace (
 	k8s.io/sample-apiserver => k8s.io/sample-apiserver v0.26.3
 	k8s.io/sample-cli-plugin => k8s.io/sample-cli-plugin v0.26.3
 	k8s.io/sample-controller => k8s.io/sample-controller v0.26.3
+	github.com/lf-edge/eve-api/go => /home/christoph/projects/eve-api/go
 )
 
 replace github.com/mitchellh/osext => github.com/kardianos/osext v0.0.0-20190222173326-2bc1f35cddc0

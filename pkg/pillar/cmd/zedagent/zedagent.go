@@ -115,6 +115,7 @@ type zedagentContext struct {
 	triggerObjectInfo         chan<- infoForObjectKey
 	triggerClusterInfo        chan<- destinationBitset
 	triggerClusterUpdateInfo  chan<- destinationBitset
+	triggerLOCInfo            chan struct{}
 	zbootRestarted            bool // published by baseosmgr
 	subOnboardStatus          pubsub.Subscription
 	subBaseOsStatus           pubsub.Subscription
@@ -843,6 +844,8 @@ func mainEventLoop(zedagentCtx *zedagentContext, stillRunning *time.Ticker) {
 
 	for {
 		select {
+		case <-zedagentCtx.triggerLOCInfo:
+			zedagentCtx.sendZiLOCInfo()
 		case change := <-zedagentCtx.subOnboardStatus.MsgChan():
 			zedagentCtx.subOnboardStatus.ProcessChange(change)
 
@@ -2066,6 +2069,20 @@ func initPostOnboardSubs(zedagentCtx *zedagentContext) {
 		ModifyHandler: handlePatchEnvelopeStatusModify,
 		WarningTime:   warningTime,
 		ErrorTime:     errorTime,
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+	getconfigCtx.subZiLOCSend, err = ps.NewSubscription(pubsub.SubscriptionOptions{
+		AgentName:   "msrv",
+		MyAgentName: agentName,
+		TopicImpl:   types.ZiLOCSendCmd{},
+		Activate:    true,
+		Ctx:         zedagentCtx,
+		// CreateHandler: handlePatchEnvelopeStatusCreate,
+		// ModifyHandler: handlePatchEnvelopeStatusModify,
+		WarningTime: warningTime,
+		ErrorTime:   errorTime,
 	})
 	if err != nil {
 		log.Fatal(err)
