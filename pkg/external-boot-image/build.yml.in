@@ -7,3 +7,4 @@ image: eve-external-boot-image
 buildArgs:
   - KERNEL=KERNEL_TAG
   - XENTOOLS=XENTOOLS_TAG
+  - REL_HASH_%=@lkt:pkgs:../*
