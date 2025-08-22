@@ -6,6 +6,8 @@ package inventory
 import (
 	"bytes"
 	"context"
+	"fmt"
+	"os"
 	"path/filepath"
 	"reflect"
 	"sync"
@@ -15,6 +17,7 @@ import (
 	"github.com/lf-edge/eve/pkg/pillar/agentbase"
 	"github.com/lf-edge/eve/pkg/pillar/agentlog"
 	"github.com/lf-edge/eve/pkg/pillar/base"
+	"github.com/lf-edge/eve/pkg/pillar/containerd"
 	"github.com/lf-edge/eve/pkg/pillar/controllerconn"
 	"github.com/lf-edge/eve/pkg/pillar/hardware"
 	"github.com/lf-edge/eve/pkg/pillar/netmonitor"
@@ -57,8 +60,9 @@ type inventoryReporter struct {
 	uploading sync.Mutex
 }
 
-// Run - Main function - invoked from zedbox.go
+// Run - Main function
 func Run(ps *pubsub.PubSub, loggerArg *logrus.Logger, logArg *base.LogObject, arguments []string, baseDir string) int {
+	fmt.Fprintf(os.Stderr, "AAAAAA Run\n")
 	logger = loggerArg
 	log = logArg
 
@@ -95,17 +99,22 @@ func Run(ps *pubsub.PubSub, loggerArg *logrus.Logger, logArg *base.LogObject, ar
 }
 
 func (ir *inventoryReporter) upload() {
-	if ir.boardingStatus.Load() == uint32(unknownStatus) {
-		return
-	}
+	fmt.Fprintf(os.Stderr, "AAAAA upload\n")
+	// if ir.boardingStatus.Load() == uint32(unknownStatus) {
+	// 	fmt.Fprintf(os.Stderr, "AAAAAA unknownStatus\n")
+	// 	return
+	// }
 	if ir.boardingStatus.Load() == uint32(onboardedStatus) {
+		fmt.Fprintf(os.Stderr, "AAAAAA onboardedStatus\n")
 		return
 	}
 	if !ir.needUpload.Load() {
+		fmt.Fprintf(os.Stderr, "AAAAAA not needed\n")
 		return
 	}
 
 	if !ir.uploading.TryLock() {
+		fmt.Fprintf(os.Stderr, "AAAAAA ongoing\n")
 		return
 	}
 
@@ -117,8 +126,9 @@ func (ir *inventoryReporter) upload() {
 		return
 	}
 
-	dns, ok := dnsAny.(*types.DeviceNetworkStatus)
+	dns, ok := dnsAny.(types.DeviceNetworkStatus)
 	if !ok {
+		fmt.Fprintf(os.Stderr, "AAAAAA invalid DNS %T: %+v\n", dnsAny, dnsAny)
 		log.Warnf("Failed to cast %v (%T) to *types.DeviceNetworkStatus", dnsAny, dnsAny)
 		return
 	}
@@ -137,7 +147,7 @@ func (ir *inventoryReporter) upload() {
 	ctrlClient := controllerconn.NewClient(log, controllerconn.ClientOptions{
 		AgentName:           agentName,
 		NetworkMonitor:      networkMonitor,
-		DeviceNetworkStatus: dns,
+		DeviceNetworkStatus: &dns,
 		TLSConfig:           nil,
 		AgentMetrics:        ir.agentMetrics,
 		NetworkSendTimeout:  time.Second * time.Duration(timeout),
@@ -148,9 +158,14 @@ func (ir *inventoryReporter) upload() {
 		ResolverCacheFunc:   nil,
 		NoLedManager:        false,
 	})
+	err = ctrlClient.UpdateTLSConfig(nil)
+	if err != nil {
+		log.Warnf("could not update TLS config: %v", err)
+	}
 
 	server, err := types.Server()
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "AAAAAA no server name: %+v\n", err)
 		log.Warnf("could not get server name: %+v", err)
 		return
 	}
@@ -161,13 +176,23 @@ func (ir *inventoryReporter) upload() {
 	inventoryURL.Path = filepath.Join(inventoryURL.Path, productSerial, softSerial)
 
 	buf := bytes.Buffer{}
+	args := []string{"/usr/bin/spec.sh"}
 
+	taskID := fmt.Sprintf("%d", time.Now().Unix())
+	err = containerd.RunInDebugContainer(context.Background(), taskID, &buf, args, []string{}, 15*time.Minute)
+	if err != nil {
+		log.Warnf("running %+v failed: %+v", args, err)
+		return
+	}
+
+	fmt.Fprintf(os.Stderr, "AAAAAA sending inventory request %+v\n", inventoryURL)
 	rv, err := ctrlClient.SendOnAllIntf(context.Background(), inventoryURL.String(), &buf, controllerconn.RequestOptions{
 		WithNetTracing: false,
 		BailOnHTTPErr:  false,
 		Iteration:      0,
 		AllowProxy:     true,
 	})
+	fmt.Fprintf(os.Stderr, "AAAAA sending to %s: %v / %v\n", inventoryURL.String(), rv, err)
 	if err != nil {
 		log.Noticef("Posting to %s failed: %v", inventoryURL.String(), err)
 		return
@@ -261,6 +286,7 @@ func (ir *inventoryReporter) process(ps *pubsub.PubSub) {
 	watches = append(watches, pubsub.ChannelWatch{
 		Chan: reflect.ValueOf(stillRunning.C),
 		Callback: func(_ interface{}) (exit bool) {
+			fmt.Fprintf(os.Stderr, "AAAAAA still running\n")
 			ps.StillRunning(agentName, warningTime, errorTime)
 			return false
 		},
