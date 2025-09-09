@@ -14,10 +14,12 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/containerd/containerd/protobuf/proto"
+	"github.com/jaypipes/ghw"
+	"github.com/lf-edge/eve-api/go/hardwareinventory"
 	"github.com/lf-edge/eve/pkg/pillar/agentbase"
 	"github.com/lf-edge/eve/pkg/pillar/agentlog"
 	"github.com/lf-edge/eve/pkg/pillar/base"
-	"github.com/lf-edge/eve/pkg/pillar/containerd"
 	"github.com/lf-edge/eve/pkg/pillar/controllerconn"
 	"github.com/lf-edge/eve/pkg/pillar/hardware"
 	"github.com/lf-edge/eve/pkg/pillar/netmonitor"
@@ -175,18 +177,11 @@ func (ir *inventoryReporter) upload() {
 
 	inventoryURL.Path = filepath.Join(inventoryURL.Path, productSerial, softSerial)
 
-	buf := bytes.Buffer{}
-	args := []string{"/usr/bin/spec.sh"}
-
-	taskID := fmt.Sprintf("%d", time.Now().Unix())
-	err = containerd.RunInDebugContainer(context.Background(), taskID, &buf, args, []string{}, 15*time.Minute)
-	if err != nil {
-		log.Warnf("running %+v failed: %+v", args, err)
-		return
-	}
+	bs, err := proto.Marshal(ir.createInventory())
 
 	fmt.Fprintf(os.Stderr, "AAAAAA sending inventory request %+v\n", inventoryURL)
-	rv, err := ctrlClient.SendOnAllIntf(context.Background(), inventoryURL.String(), &buf, controllerconn.RequestOptions{
+	buf := bytes.NewBuffer(bs)
+	rv, err := ctrlClient.SendOnAllIntf(context.Background(), inventoryURL.String(), buf, controllerconn.RequestOptions{
 		WithNetTracing: false,
 		BailOnHTTPErr:  false,
 		Iteration:      0,
@@ -203,6 +198,46 @@ func (ir *inventoryReporter) upload() {
 	}
 
 	ir.needUpload.Store(false)
+}
+
+func (ir *inventoryReporter) createInventory() *hardwareinventory.InventoryMsg {
+	msg := hardwareinventory.InventoryMsg{}
+
+	pcis, err := ghw.PCI()
+	if err != nil {
+		log.Warnf("could not retrieve PCI information: %+v", err)
+		return nil
+	}
+
+	for _, pci := range pcis.Devices {
+		msg.PciDevices = append(msg.PciDevices, &hardwareinventory.PciDevice{
+			Driver:  "",
+			Address: pci.Address,
+			Vendor: &hardwareinventory.PCIVendor{
+				Id:   pci.Vendor.ID,
+				Name: pci.Vendor.Name,
+			},
+			Product: &hardwareinventory.PCIProduct{
+				Id:   pci.Product.ID,
+				Name: pci.Product.Name,
+			},
+			Revision: pci.Revision,
+			Subsystem: &hardwareinventory.PCISubsystem{
+				Id:   pci.Subsystem.ID,
+				Name: pci.Subsystem.Name,
+			},
+			Class: &hardwareinventory.PCIClass{
+				Id:   pci.Class.ID,
+				Name: pci.Class.Name,
+			},
+			Subclass: &hardwareinventory.PCISubclass{
+				Id:   pci.Subclass.ID,
+				Name: pci.Subclass.Name,
+			},
+		})
+	}
+
+	return &msg
 }
 
 func (ir *inventoryReporter) requestOnboardStatus() {
