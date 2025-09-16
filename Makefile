@@ -7,8 +7,7 @@
 # disable parallel builds by default
 # it can be overridden from make command line using -jN
 # we set it to 1 for now to still run it as sequential build by default
-NCORES:=1
-MAKEFLAGS += -j$(NCORES)
+MAKEFLAGS += -j$(shell nproc)
 
 # universal constants and functions
 null  :=
@@ -20,7 +19,7 @@ uniq = $(if $1,$(firstword $1) $(call uniq,$(filter-out $(firstword $1),$1)))
 HV_DEFAULT=kvm
 # linuxkit version. This **must** be a published semver version so it can be downloaded already compiled from
 # the release page at https://github.com/linuxkit/linuxkit/releases
-LINUXKIT_VERSION=v1.8.1
+LINUXKIT_VERSION=v1.8.2
 GOVER ?= 1.24.1
 PKGBASE=github.com/lf-edge/eve
 GOMODULE=$(PKGBASE)/pkg/pillar
