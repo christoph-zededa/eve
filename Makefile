@@ -538,6 +538,8 @@ test: $(LINUXKIT) pkg/pillar | $(DIST)
 	cp pkg/pillar/results.json $(DIST)/
 	cp pkg/pillar/results.xml $(DIST)/
 	make -C eve-tools/bpftrace-compiler test
+	make -C tools/git-change-exec
+	./tools/git-change-exec/cmd/git-exec/git-exec run tools/git-change-exec/actions/tests/git-change-exec/main.gce.lua
 	make -C pkg/alpine/dnstest test
 	make -C pkg/debug test
 	make -C pkg/vtpm test
