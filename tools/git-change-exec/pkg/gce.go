@@ -4,7 +4,9 @@
 package pkg
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"math"
 	"os"
@@ -114,9 +116,18 @@ func (ld LineDiff) IsComment() CommentType {
 	return Undecided
 }
 
+type ActionToDos struct {
+	Actions map[string][]ActionToDo
+}
+
+type ActionToDo struct {
+	Path string
+	Ld   *LineDiff
+}
+
 type GitChangeExec struct {
 	ActionsToCheck []Action
-	ActionDos      map[Action]struct{}
+	ActionDos      ActionToDos
 	GitPath        string
 	G              *git.Repository
 	relPaths       map[string]struct{}
@@ -131,11 +142,15 @@ func debugLog(fmt string, args ...any) {
 }
 
 func NewGitChangeExec() GitChangeExec {
-	return GitChangeExec{
-		ActionDos:      map[Action]struct{}{},
+	gce := GitChangeExec{
+		ActionDos: ActionToDos{
+			Actions: map[string][]ActionToDo{},
+		},
 		ActionsToCheck: []Action{},
 		relPaths:       map[string]struct{}{},
 	}
+
+	return gce
 }
 
 func (gce *GitChangeExec) GoToGitRootDir() {
@@ -180,9 +195,7 @@ func (gce *GitChangeExec) FetchOrigin() {
 }
 
 func (gce *GitChangeExec) Diff() {
-	//fmt.Printf(">>> diff %+q\n", gce.relPaths)
 	for path := range gce.relPaths {
-		//fmt.Printf(">>> relpath %s\n", path)
 		gce.diffPath(path)
 	}
 }
@@ -198,13 +211,10 @@ func (gce *GitChangeExec) diffPath(path string) {
 		}
 	}
 
-	///
 	linesFrom := Parse(path, oldContent)
-	//printLines(linesOld, oldContent)
 
 	bs, err := os.ReadFile(path)
 	if err != nil {
-		// log.Printf("could not slurp '%s': %v", path, err)
 		return
 	}
 	linesTo := Parse(path, string(bs))
@@ -389,11 +399,37 @@ func (gce *GitChangeExec) storePath(path string) {
 	gce.relPaths[path] = struct{}{}
 }
 
+func (gce *GitChangeExec) DumpActionToDos(w io.Writer) {
+	gce.ActionDos.dumpActionToDos(w)
+}
+
+func (atd *ActionToDos) dumpActionToDos(w io.Writer) {
+	bs, err := json.MarshalIndent(atd, "", "\t")
+	if err != nil {
+		log.Fatalf("json marshalling failed: %v", err)
+	}
+
+	fmt.Fprintf(w, "%s\n", string(bs))
+}
+
+func (atd *ActionToDos) addActionToDo(a Action, path string, ld *LineDiff) {
+	if atd.Actions[Id(a)] == nil {
+		atd.Actions[Id(a)] = make([]ActionToDo, 0)
+	}
+	atd.Actions[Id(a)] = append(atd.Actions[Id(a)], ActionToDo{
+		Path: path,
+		Ld:   ld,
+	})
+}
+
 func (gce *GitChangeExec) addActionByLineDiff(path string, ld LineDiff) {
 	for _, a := range gce.ActionsToCheck {
 		ad, ok := a.(ActionDiff)
-		if ok && ad.MatchDiff(path, ld) {
-			gce.ActionDos[a] = struct{}{}
+		if !ok {
+			continue
+		}
+		if ad.MatchDiff(path, ld) {
+			gce.ActionDos.addActionToDo(a, path, &ld)
 		}
 	}
 }
@@ -402,7 +438,7 @@ func (gce *GitChangeExec) addActionByPath(path string) {
 	for _, a := range gce.ActionsToCheck {
 		ap, ok := a.(ActionPath)
 		if ok && ap.MatchPath(path) {
-			gce.ActionDos[a] = struct{}{}
+			gce.ActionDos.addActionToDo(a, path, nil)
 		}
 	}
 }
@@ -424,7 +460,7 @@ func (gce *GitChangeExec) ForceRunActionDos() {
 func (gce *GitChangeExec) RunActionDos(dryRun bool) {
 	failed := false
 	for _, a := range gce.ActionsToCheck {
-		_, found := gce.ActionDos[a]
+		_, found := gce.ActionDos.Actions[Id(a)]
 		if !found {
 			continue
 		}
