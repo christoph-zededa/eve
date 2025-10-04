@@ -119,8 +119,12 @@ func (ta *testAction) matchDiff(path string, ld LineDiff) bool {
 	}
 	return false
 }
-func (ta *testAction) Do() error {
+
+func (ta *testAction) Do([]ActionToDo) error {
 	return ta.doImpl()
+}
+
+func (ta *testAction) Close() {
 }
 
 func runGCE(t *testing.T, ta *testAction) GitChangeExec {
