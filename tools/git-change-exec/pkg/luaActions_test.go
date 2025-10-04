@@ -47,5 +47,5 @@ func TestLUA(t *testing.T) {
 	fmt.Printf("ret: %+v\n", lineDiffMatch)
 
 	fmt.Println("--- execute ---")
-	la.action([]ActionToDo{})
+	la.do([]ActionToDo{})
 }

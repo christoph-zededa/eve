@@ -1,7 +1,7 @@
 paths = {}
 
 function match(lf, ld)
-	if paths[lf:Path()] then
+	if paths[lf:Path()] ~= nil then
 		return false
 	end
 	paths[lf:Path()] = true

@@ -1,6 +1,3 @@
-// Copyright (c) 2024 Zededa, Inc.
-// SPDX-License-Identifier: Apache-2.0
-
 package pkg
 
 import (
@@ -16,6 +13,9 @@ import (
 	"github.com/go-git/go-git/v5/config"
 )
 
+// trick to not confuse spdx check shellscript
+const spdxLicenseIdentifier = "SPDX-" + "License-Identifier:"
+
 type LintSpdx struct {
 	extsMap      map[string]func(path string)
 	organization string
@@ -28,7 +28,7 @@ func (s *LintSpdx) dontfix(path string) {
 func (s *LintSpdx) copyright(commentIndicator string) []string {
 	copyrightLines := []string{
 		fmt.Sprintf("%s Copyright (c) %d %s, Inc.\n", commentIndicator, time.Now().Year(), s.organization),
-		fmt.Sprintf("%s SPDX-License-Identifier: Apache-2.0\n\n", commentIndicator),
+		fmt.Sprintf("%s %s: Apache-2.0\n\n", spdxLicenseIdentifier, commentIndicator),
 	}
 
 	return copyrightLines
@@ -143,7 +143,7 @@ func (s *LintSpdx) hasSpdx(path string) bool {
 	exitErr, ok := err.(*exec.ExitError)
 
 	if ok {
-		return strings.Contains(string(bs), "SPDX-License-Identifier: OK")
+		return strings.Contains(string(bs), spdxLicenseIdentifier+" OK")
 	}
 
 	log.Fatalf("running '%s' '%s' failed: %v", scriptPath, path, exitErr)
@@ -172,7 +172,7 @@ func (s *LintSpdx) MatchPath(path string) bool {
 }
 
 func (s *LintSpdx) Id() string {
-	return "lint-spdx"
+	return "gce:lint-spdx"
 }
 
 func (s *LintSpdx) Do(actionToDos []ActionToDo) error {
@@ -190,6 +190,9 @@ func (s *LintSpdx) Do(actionToDos []ActionToDo) error {
 	}
 
 	return nil
+}
+
+func (s *LintSpdx) Close() {
 }
 
 func copyFile(srcPath, dstPath string) error {

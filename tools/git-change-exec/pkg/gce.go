@@ -173,6 +173,14 @@ func (gce *GitChangeExec) GoToGitRootDir() {
 	}
 }
 
+func (gce *GitChangeExec) Close() {
+	gce.ChangeBackDir()
+
+	for _, a := range gce.ActionsToCheck {
+		a.Close()
+	}
+}
+
 func (gce *GitChangeExec) ChangeBackDir() {
 	if gce.originPath == "" {
 		return
@@ -459,6 +467,10 @@ func (gce *GitChangeExec) ForceRunActionDos() {
 
 func (gce *GitChangeExec) DryRunActionDos() {
 	for _, a := range gce.ActionsToCheck {
+		_, found := gce.ActionDos.Actions[Id(a)]
+		if !found {
+			continue
+		}
 		log.Printf("would run %s, but running dry ...", Id(a))
 	}
 }
@@ -521,4 +533,55 @@ func (gce *GitChangeExec) CollectDirtyGitTree() {
 		//gce.addActionByPath(file)
 		gce.storePath(file)
 	}
+}
+
+func InternalActions() map[string]Action {
+	lintSpdx := &LintSpdx{}
+	internalActions := map[string]Action{
+		lintSpdx.Id(): lintSpdx,
+	}
+
+	return internalActions
+}
+func (gce *GitChangeExec) LoadActions(args []string) {
+
+	luaFiles := make([]string, 0)
+	for _, path := range args {
+		var luaPath string
+
+		if strings.HasPrefix(path, "lua:") {
+			luaPath = strings.TrimPrefix(path, "lua:")
+		}
+		if !strings.Contains(path, ":") {
+			_, err := os.Stat(path)
+			if err == nil {
+				luaPath = path
+			}
+		}
+
+		if luaPath != "" {
+			actionsPath, err := filepath.Abs(luaPath)
+			if err != nil {
+				log.Fatalf("could not get absolute path of %s: %v", path, err)
+			}
+			luaFiles = append(luaFiles, ListLuaActions(actionsPath)...)
+		}
+		if strings.HasPrefix(path, "gce:") {
+			action, found := InternalActions()[path]
+			if !found {
+				log.Fatalf("could not find action '%s'", path)
+			}
+			gce.ActionsToCheck = append(gce.ActionsToCheck, action)
+		}
+	}
+	for _, luaFile := range luaFiles {
+		content, err := os.ReadFile(luaFile)
+		if err != nil {
+			log.Fatalf("could not read file %s: %v", luaFile, err)
+		}
+		log.Printf("Loading %s ...\n", luaFile)
+		la := LuaLoad("lua:"+luaFile, string(content))
+		gce.ActionsToCheck = append(gce.ActionsToCheck, la)
+	}
+
 }

@@ -16,8 +16,9 @@ import (
 )
 
 type LuaAction struct {
-	id     string
-	script string
+	id         string
+	script     string
+	matchState *lua.LState
 }
 
 func LuaLoad(name string, script string) *LuaAction {
@@ -34,7 +35,7 @@ func (la *LuaAction) Id() string {
 	return la.id
 }
 
-func (la *LuaAction) action(actionToDos []ActionToDo) error {
+func (la *LuaAction) do(actionToDos []ActionToDo) error {
 	state := lua.NewState(lua.Options{SkipOpenLibs: true, IncludeGoStackTrace: true})
 	la.luaLoadBaseFunctions(state)
 	la.luaLoadExtendedFunctions(state)
@@ -83,14 +84,18 @@ func (lf luaFile) Lines() []string {
 }
 
 func (la *LuaAction) match(path string, ld LineDiff) bool {
-	state := lua.NewState(lua.Options{SkipOpenLibs: true, IncludeGoStackTrace: true})
-	la.luaLoadBaseFunctions(state)
+	var retBool bool
 
-	defer state.Close()
+	if la.matchState == nil {
+		la.matchState = lua.NewState(lua.Options{SkipOpenLibs: true, IncludeGoStackTrace: true})
+		la.luaLoadBaseFunctions(la.matchState)
 
-	if err := state.DoString(la.script); err != nil {
-		panic(err)
+		if err := la.matchState.DoString(la.script); err != nil {
+			panic(err)
+		}
 	}
+
+	state := la.matchState
 
 	bs, err := os.ReadFile(path)
 	if err != nil {
@@ -111,11 +116,12 @@ func (la *LuaAction) match(path string, ld LineDiff) bool {
 		log.Fatalf("could not call 'match': %v", err)
 	}
 	ret := state.Get(-1) // returned value
-	retBool, ok := ret.(lua.LBool)
-	if !ok {
-		log.Fatalf("match: unknown return type %T", ret)
+	switch val := ret.(type) {
+	case lua.LBool:
+		retBool = bool(val)
+	case lua.LNumber:
+		retBool = val == 0
 	}
-	state.Pop(1) // remove received value
 
 	return bool(retBool)
 }
@@ -135,9 +141,14 @@ func (la *LuaAction) luaLoadBaseFunctions(state *lua.LState) {
 }
 
 func (la *LuaAction) Do(actionToDos []ActionToDo) error {
-	return la.action(actionToDos)
+	return la.do(actionToDos)
 }
 
+func (la *LuaAction) Close() {
+	if la.matchState != nil {
+		la.matchState.Close()
+	}
+}
 func (la *LuaAction) MatchDiff(path string, ld LineDiff) bool {
 	return la.match(path, ld)
 }

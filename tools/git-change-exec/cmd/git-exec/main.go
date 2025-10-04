@@ -8,7 +8,6 @@ import (
 	"git-change-exec/pkg"
 	"log"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/go-git/go-git/v5"
@@ -19,11 +18,6 @@ var dryRun = false
 var forceRun = false
 
 func main() {
-	lintSpdx := &pkg.LintSpdx{}
-	internalActions := map[string]pkg.Action{
-		lintSpdx.Id(): lintSpdx,
-	}
-
 	rootCmd := cobra.Command{}
 	baseCommitCmd := cobra.Command{
 		Args: cobra.MinimumNArgs(0),
@@ -58,48 +52,10 @@ func main() {
 			if err != nil {
 				log.Fatalf("open git path %s failed: %v", gce.GitPath, err)
 			}
-			luaFiles := make([]string, 0)
-			for _, path := range args {
-				var luaPath string
-
-				if strings.HasPrefix(path, "lua:") {
-					luaPath = strings.TrimPrefix(path, "lua:")
-				}
-				if !strings.Contains(path, ":") {
-					_, err := os.Stat(path)
-					if err == nil {
-						luaPath = path
-					}
-				}
-
-				if luaPath != "" {
-					actionsPath, err := filepath.Abs(luaPath)
-					if err != nil {
-						log.Fatalf("could not get absolute path of %s: %v", path, err)
-					}
-					luaFiles = append(luaFiles, pkg.ListLuaActions(actionsPath)...)
-				}
-				if strings.HasPrefix(path, "gce:") {
-					name := strings.TrimPrefix(path, "gce:")
-					action, found := internalActions[name]
-					if !found {
-						log.Fatalf("could not find action '%s'", path)
-					}
-					gce.ActionsToCheck = append(gce.ActionsToCheck, action)
-				}
-			}
-			for _, luaFile := range luaFiles {
-				content, err := os.ReadFile(luaFile)
-				if err != nil {
-					log.Fatalf("could not read file %s: %v", luaFile, err)
-				}
-				log.Printf("Loading %s ...\n", luaFile)
-				la := pkg.LuaLoad(luaFile, string(content))
-				gce.ActionsToCheck = append(gce.ActionsToCheck, la)
-			}
+			gce.LoadActions(args)
+			defer gce.Close()
 
 			gce.GoToGitRootDir()
-			defer gce.ChangeBackDir()
 
 			if len(gce.ActionsToCheck) == 0 {
 				fmt.Printf("no actions to check\n")
@@ -125,7 +81,6 @@ func main() {
 			}
 
 			gce.RunActionDos()
-
 		},
 	}
 	parseCmd := cobra.Command{
@@ -173,7 +128,7 @@ func main() {
 			for _, path := range actionLuaFiles {
 				fmt.Printf("- lua:%s\n", path)
 			}
-			for name := range internalActions {
+			for name := range pkg.InternalActions() {
 				fmt.Printf("- gce:%s\n", name)
 			}
 		},
@@ -187,5 +142,4 @@ func main() {
 	if err != nil {
 		log.Fatalf("corba failed with: %v", err)
 	}
-
 }

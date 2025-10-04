@@ -1,6 +1,3 @@
-// Copyright (c) 2024 Zededa, Inc.
-// SPDX-License-Identifier: Apache-2.0
-
 package pkg
 
 import (
@@ -8,13 +5,6 @@ import (
 )
 
 type opActionLine uint8
-
-const (
-	opActionLineFullAdd = iota
-	opActionLineFullDel
-	opActionLineAdd
-	opActionLineDel
-)
 
 type ActionPath interface {
 	MatchPath(path string) bool
@@ -24,6 +14,7 @@ type ActionDiff interface {
 }
 type Action interface {
 	Do(actionToDos []ActionToDo) error
+	Close()
 }
 type Ider interface {
 	Id() string
