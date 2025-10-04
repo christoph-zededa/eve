@@ -6,7 +6,6 @@ package main
 import (
 	"fmt"
 	"git-change-exec/pkg"
-	"io/fs"
 	"log"
 	"os"
 	"path/filepath"
@@ -59,6 +58,7 @@ func main() {
 			if err != nil {
 				log.Fatalf("open git path %s failed: %v", gce.GitPath, err)
 			}
+			luaFiles := make([]string, 0)
 			for _, path := range args {
 				var luaPath string
 
@@ -77,17 +77,7 @@ func main() {
 					if err != nil {
 						log.Fatalf("could not get absolute path of %s: %v", path, err)
 					}
-					luaFiles := listLuaActions(actionsPath)
-					for _, luaFile := range luaFiles {
-						content, err := os.ReadFile(luaFile)
-						if err != nil {
-							log.Fatalf("could not read file %s: %v", luaFile, err)
-						}
-						log.Printf("Loading %s ...\n", luaFile)
-						la := pkg.LuaLoad(luaFile, string(content))
-						defer la.Close()
-						gce.ActionsToCheck = append(gce.ActionsToCheck, la)
-					}
+					luaFiles = append(luaFiles, pkg.ListLuaActions(actionsPath)...)
 				}
 				if strings.HasPrefix(path, "gce:") {
 					name := strings.TrimPrefix(path, "gce:")
@@ -97,6 +87,15 @@ func main() {
 					}
 					gce.ActionsToCheck = append(gce.ActionsToCheck, action)
 				}
+			}
+			for _, luaFile := range luaFiles {
+				content, err := os.ReadFile(luaFile)
+				if err != nil {
+					log.Fatalf("could not read file %s: %v", luaFile, err)
+				}
+				log.Printf("Loading %s ...\n", luaFile)
+				la := pkg.LuaLoad(luaFile, string(content))
+				gce.ActionsToCheck = append(gce.ActionsToCheck, la)
 			}
 
 			gce.GoToGitRootDir()
@@ -120,7 +119,12 @@ func main() {
 			gce.CollectDirtyGitTree()
 
 			gce.Diff()
-			gce.RunActionDos(dryRun)
+			if dryRun {
+				gce.DryRunActionDos()
+				return
+			}
+
+			gce.RunActionDos()
 
 		},
 	}
@@ -147,8 +151,9 @@ func main() {
 		},
 	}
 	luaCmd := cobra.Command{
-		Args: cobra.ExactArgs(1),
-		Use:  "lua <action.lua>",
+		Args:  cobra.ExactArgs(1),
+		Use:   "lua-load <action.lua>",
+		Short: "load LUA file to do syntax check",
 		Run: func(cmd *cobra.Command, args []string) {
 			script, err := os.ReadFile(args[0])
 			if err != nil {
@@ -163,7 +168,7 @@ func main() {
 		Run: func(cmd *cobra.Command, args []string) {
 			actionLuaFiles := []string{}
 			for _, arg := range args {
-				actionLuaFiles = append(actionLuaFiles, listLuaActions(arg)...)
+				actionLuaFiles = append(actionLuaFiles, pkg.ListLuaActions(arg)...)
 			}
 			for _, path := range actionLuaFiles {
 				fmt.Printf("- lua:%s\n", path)
@@ -183,22 +188,4 @@ func main() {
 		log.Fatalf("corba failed with: %v", err)
 	}
 
-}
-
-func listLuaActions(path string) []string {
-	actionLuaFiles := make([]string, 0)
-	filepath.WalkDir(path, func(path string, d fs.DirEntry, err error) error {
-		if d == nil {
-			return nil
-		}
-		if d.IsDir() {
-			return nil
-		}
-		if !strings.HasSuffix(d.Name(), ".gce.lua") {
-			return nil
-		}
-		actionLuaFiles = append(actionLuaFiles, path)
-		return nil
-	})
-	return actionLuaFiles
 }

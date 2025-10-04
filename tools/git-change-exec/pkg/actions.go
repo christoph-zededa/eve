@@ -23,7 +23,7 @@ type ActionDiff interface {
 	MatchDiff(path string, ld LineDiff) bool
 }
 type Action interface {
-	Do() error
+	Do(actionToDos []ActionToDo) error
 }
 type Ider interface {
 	Id() string

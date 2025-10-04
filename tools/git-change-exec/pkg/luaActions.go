@@ -5,37 +5,24 @@ package pkg
 
 import (
 	"fmt"
+	"io/fs"
 	"log"
 	"os"
+	"path/filepath"
 	"strings"
 
 	lua "github.com/yuin/gopher-lua"
 	luar "layeh.com/gopher-luar"
 )
 
-type runMode uint8
-
-const (
-	baseRunMode = iota
-	extendedRunMode
-)
-
 type LuaAction struct {
-	state *lua.LState
-	rm    runMode
-	id    string
+	id     string
+	script string
 }
 
 func LuaLoad(name string, script string) *LuaAction {
 	la := LuaAction{
-		rm: baseRunMode,
-	}
-
-	la.state = lua.NewState(lua.Options{SkipOpenLibs: true, IncludeGoStackTrace: true})
-	la.luaLoadBaseFunctions()
-
-	if err := la.state.DoString(script); err != nil {
-		panic(err)
+		script: script,
 	}
 
 	la.id = name
@@ -43,27 +30,31 @@ func LuaLoad(name string, script string) *LuaAction {
 	return &la
 }
 
-func (la *LuaAction) Close() {
-	la.state.Close()
-}
-
 func (la *LuaAction) Id() string {
 	return la.id
 }
 
-func (la *LuaAction) action() error {
-	la.luaLoadExtendedFunctions()
+func (la *LuaAction) action(actionToDos []ActionToDo) error {
+	state := lua.NewState(lua.Options{SkipOpenLibs: true, IncludeGoStackTrace: true})
+	la.luaLoadBaseFunctions(state)
+	la.luaLoadExtendedFunctions(state)
 
-	err := la.state.CallByParam(lua.P{
-		Fn:      la.state.GetGlobal("exec"),
+	defer state.Close()
+
+	if err := state.DoString(la.script); err != nil {
+		panic(err)
+	}
+
+	err := state.CallByParam(lua.P{
+		Fn:      state.GetGlobal("exec"),
 		NRet:    1,
 		Protect: true,
-	})
+	}, luar.New(state, actionToDos))
 	if err != nil {
 		return fmt.Errorf("running exec failed: %w", err)
 	}
-	ret := la.state.Get(-1) // returned value
-	defer la.state.Pop(1)   // remove received value
+	ret := state.Get(-1) // returned value
+	defer state.Pop(1)   // remove received value
 	switch val := ret.(type) {
 	case lua.LBool:
 		if !val {
@@ -92,9 +83,15 @@ func (lf luaFile) Lines() []string {
 }
 
 func (la *LuaAction) match(path string, ld LineDiff) bool {
-	if la.rm != baseRunMode {
-		panic("baseRunMode expected")
+	state := lua.NewState(lua.Options{SkipOpenLibs: true, IncludeGoStackTrace: true})
+	la.luaLoadBaseFunctions(state)
+
+	defer state.Close()
+
+	if err := state.DoString(la.script); err != nil {
+		panic(err)
 	}
+
 	bs, err := os.ReadFile(path)
 	if err != nil {
 		log.Fatalf("could not read file %s: %v", path, err)
@@ -106,48 +103,59 @@ func (la *LuaAction) match(path string, ld LineDiff) bool {
 		lines: lines,
 	}
 
-	if err := la.state.CallByParam(lua.P{
-		Fn:      la.state.GetGlobal("match"),
+	if err := state.CallByParam(lua.P{
+		Fn:      state.GetGlobal("match"),
 		NRet:    1,
 		Protect: true,
-	}, luar.New(la.state, lf), luar.New(la.state, ld)); err != nil {
+	}, luar.New(state, lf), luar.New(state, ld)); err != nil {
 		log.Fatalf("could not call 'match': %v", err)
 	}
-	ret := la.state.Get(-1) // returned value
+	ret := state.Get(-1) // returned value
 	retBool, ok := ret.(lua.LBool)
 	if !ok {
 		log.Fatalf("match: unknown return type %T", ret)
 	}
-	la.state.Pop(1) // remove received value
+	state.Pop(1) // remove received value
 
 	return bool(retBool)
 }
 
-func (la *LuaAction) luaLoadExtendedFunctions() {
-	if la.rm == extendedRunMode {
-		panic("extended mode is already loaded")
-	}
-	la.rm = extendedRunMode
-	lua.OpenOs(la.state)
-	lua.OpenIo(la.state)
-	lua.OpenPackage(la.state)
-	lua.OpenChannel(la.state)
-	lua.OpenCoroutine(la.state)
+func (la *LuaAction) luaLoadExtendedFunctions(state *lua.LState) {
+	lua.OpenOs(state)
+	lua.OpenIo(state)
+	lua.OpenPackage(state)
+	lua.OpenChannel(state)
+	lua.OpenCoroutine(state)
 }
 
-func (la *LuaAction) luaLoadBaseFunctions() {
-	if la.rm == extendedRunMode {
-		panic("extended mode is loaded")
-	}
-	lua.OpenBase(la.state)
-	lua.OpenString(la.state)
-	lua.OpenMath(la.state)
+func (la *LuaAction) luaLoadBaseFunctions(state *lua.LState) {
+	lua.OpenBase(state)
+	lua.OpenString(state)
+	lua.OpenMath(state)
 }
 
-func (la *LuaAction) Do() error {
-	return la.action()
+func (la *LuaAction) Do(actionToDos []ActionToDo) error {
+	return la.action(actionToDos)
 }
 
 func (la *LuaAction) MatchDiff(path string, ld LineDiff) bool {
 	return la.match(path, ld)
+}
+
+func ListLuaActions(path string) []string {
+	actionLuaFiles := make([]string, 0)
+	filepath.WalkDir(path, func(path string, d fs.DirEntry, err error) error {
+		if d == nil {
+			return nil
+		}
+		if d.IsDir() {
+			return nil
+		}
+		if !strings.HasSuffix(d.Name(), ".gce.lua") {
+			return nil
+		}
+		actionLuaFiles = append(actionLuaFiles, path)
+		return nil
+	})
+	return actionLuaFiles
 }

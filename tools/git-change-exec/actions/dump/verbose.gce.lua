@@ -1,8 +1,11 @@
 function match(lf, ld)
-	print("path: " .. lf:Path() .. " lineDiff: " .. ld:String())
 	return true
 end
 
-function exec()
+function exec(as)
+	print(#as)
+	for _, a in as() do
+		print("path: " .. a.Path .. " lineDiff: " .. a.Ld:String())
+	end
 	return true
 end

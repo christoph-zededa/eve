@@ -446,7 +446,7 @@ func (gce *GitChangeExec) addActionByPath(path string) {
 func (gce *GitChangeExec) ForceRunActionDos() {
 	var err error
 	for _, a := range gce.ActionsToCheck {
-		err = a.Do()
+		err = a.Do(nil)
 		if err != nil {
 			log.Printf("%s failed with: %v", Id(a), err)
 		}
@@ -457,21 +457,23 @@ func (gce *GitChangeExec) ForceRunActionDos() {
 	}
 }
 
-func (gce *GitChangeExec) RunActionDos(dryRun bool) {
+func (gce *GitChangeExec) DryRunActionDos() {
+	for _, a := range gce.ActionsToCheck {
+		log.Printf("would run %s, but running dry ...", Id(a))
+	}
+}
+
+func (gce *GitChangeExec) RunActionDos() {
 	failed := false
 	for _, a := range gce.ActionsToCheck {
-		_, found := gce.ActionDos.Actions[Id(a)]
+		actionToDos, found := gce.ActionDos.Actions[Id(a)]
 		if !found {
 			continue
 		}
 		var err error
-		if !dryRun {
-			log.Printf("--- running %s ...", Id(a))
-			err = a.Do()
-			log.Printf("--- running %s done", Id(a))
-		} else {
-			log.Printf("would run %s, but running dry ...", Id(a))
-		}
+		log.Printf("--- running %s ...", Id(a))
+		err = a.Do(actionToDos)
+		log.Printf("--- running %s done", Id(a))
 		if err != nil {
 			log.Printf("%s failed with: %v", Id(a), err)
 			failed = true

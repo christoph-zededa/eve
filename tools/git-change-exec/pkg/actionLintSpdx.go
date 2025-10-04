@@ -18,8 +18,6 @@ import (
 
 type LintSpdx struct {
 	extsMap      map[string]func(path string)
-	pathsToFix   []string
-	ownPath      string
 	organization string
 }
 
@@ -107,8 +105,6 @@ func readGitConfigOrganization() string {
 }
 
 func (s *LintSpdx) init() {
-	var err error
-
 	s.extsMap = map[string]func(path string){
 		".sh":        s.dontfix,
 		".go":        s.gofix,
@@ -119,13 +115,6 @@ func (s *LintSpdx) init() {
 		".yaml":      s.yamlfix,
 		".yml":       s.yamlfix,
 		"Dockerfile": s.dockerfilefix,
-	}
-
-	s.pathsToFix = make([]string, 0)
-
-	s.ownPath, err = os.Executable()
-	if err != nil {
-		log.Fatalf("could not determine executable path: %v", err)
 	}
 
 	s.organization = readGitConfigOrganization()
@@ -176,7 +165,6 @@ func (s *LintSpdx) MatchPath(path string) bool {
 		return false
 	}
 	if !s.hasSpdx(path) {
-		s.pathsToFix = append(s.pathsToFix, path)
 		return true
 	}
 
@@ -187,19 +175,18 @@ func (s *LintSpdx) Id() string {
 	return "lint-spdx"
 }
 
-func (s *LintSpdx) Do() error {
+func (s *LintSpdx) Do(actionToDos []ActionToDo) error {
 	if s.organization == "" {
-		log.Printf("could not read organization from git config, cannot fix copyrights")
-		return nil
+		return fmt.Errorf("could not read organization from git config, cannot fix copyrights")
 	}
 
-	for _, path := range s.pathsToFix {
-		extFixFunc, found := s.pathMatch(path)
+	for _, atd := range actionToDos {
+		extFixFunc, found := s.pathMatch(atd.Path)
 		if !found {
 			continue
 		}
 
-		extFixFunc(path)
+		extFixFunc(atd.Path)
 	}
 
 	return nil
