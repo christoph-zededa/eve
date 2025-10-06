@@ -1379,6 +1379,7 @@ func myGet(ctx *diagContext, reqURL string, ifname string,
 			AllowProxy:     true,
 			UseOnboard:     ctx.usingOnboardCert,
 			WithNetTracing: withNetTracing,
+			NetTraceFolder: types.NetTraceFolder,
 			// Suppress logs to prevent periodic diag actions from cluttering the logs.
 			SuppressLogs: true,
 		})
@@ -1450,6 +1451,7 @@ func myPost(ctx *diagContext, reqURL string, ifname string,
 			AllowProxy:     true,
 			UseOnboard:     ctx.usingOnboardCert,
 			WithNetTracing: withNetTracing,
+			NetTraceFolder: types.NetTraceFolder,
 			// Suppress logs to prevent periodic diag actions from cluttering the logs.
 			SuppressLogs: true,
 		})

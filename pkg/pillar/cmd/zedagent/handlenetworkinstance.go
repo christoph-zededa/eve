@@ -437,6 +437,7 @@ func publishFlowMessage(flowMsg *flowlog.FlowMessage, iteration int) error {
 	rv, err := ctrlClient.SendOnAllIntf(ctxWork, flowlogURL, buf,
 		controllerconn.RequestOptions{
 			WithNetTracing: false,
+			NetTraceFolder: "",
 			BailOnHTTPErr:  false,
 			Iteration:      iteration,
 		})

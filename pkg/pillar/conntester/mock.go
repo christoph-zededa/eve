@@ -48,7 +48,7 @@ func (t *MockConnectivityTester) SetConnectivityError(dpcKey, ifName string, err
 
 // TestConnectivity simulates connectivity test.
 func (t *MockConnectivityTester) TestConnectivity(dns types.DeviceNetworkStatus,
-	withNetTrace bool) (intfStatusMap types.IntfStatusMap, tracedReqs []netdump.TracedNetRequest, err error) {
+	withNetTrace bool, netTraceFolder string) (intfStatusMap types.IntfStatusMap, tracedReqs []netdump.TracedNetRequest, err error) {
 	t.Lock()
 	defer t.Unlock()
 

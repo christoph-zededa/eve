@@ -261,6 +261,7 @@ func handleSyncOp(ctx *downloaderContext, key string,
 			ctx:    ctx,
 			status: status,
 		}
+
 		downloadStartTime := time.Now()
 		contentType, cancelled, tracedReq, err = download(ctx, trType, st, syncOp,
 			serverURL, types.NetTraceFolder, auth, dsPath, dsCtx.Region,

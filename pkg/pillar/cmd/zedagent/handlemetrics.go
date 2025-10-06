@@ -1582,6 +1582,7 @@ func SendProtobuf(url string, buf *bytes.Buffer, iteration int) error {
 	defer cancel()
 	rv, err := ctrlClient.SendOnAllIntf(ctxWork, url, buf, controllerconn.RequestOptions{
 		WithNetTracing: false,
+		NetTraceFolder: "",
 		// For 4xx and 5xx HTTP errors we don't try other interfaces
 		BailOnHTTPErr: true,
 		Iteration:     iteration,
@@ -1622,6 +1623,7 @@ func sendMetricsProtobufByURL(ctx *getconfigContext, metricsURL string,
 	rv, err := ctrlClient.SendOnAllIntf(ctxWork, metricsURL, buf,
 		controllerconn.RequestOptions{
 			WithNetTracing: false,
+			NetTraceFolder: "",
 			BailOnHTTPErr:  false,
 			Iteration:      iteration,
 		})

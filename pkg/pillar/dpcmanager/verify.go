@@ -234,7 +234,7 @@ func (m *DpcManager) verifyDPC(ctx context.Context) (status types.DPCState) {
 	m.updateDNS()
 	withNetTrace := m.traceNextConnTest()
 	intfStatusMap, tracedProbes, err := m.ConnTester.TestConnectivity(
-		m.deviceNetStatus, withNetTrace)
+		m.deviceNetStatus, withNetTrace, types.NetTraceFolder)
 	// Use TestResults to update the DevicePortConfigList and DeviceNetworkStatus
 	// Note that the TestResults will at least have an updated timestamp
 	// for one of the ports.
@@ -408,7 +408,7 @@ func (m *DpcManager) testConnectivityToController(ctx context.Context) error {
 
 	withNetTrace := m.traceNextConnTest()
 	intfStatusMap, tracedProbes, err := m.ConnTester.TestConnectivity(
-		m.deviceNetStatus, withNetTrace)
+		m.deviceNetStatus, withNetTrace, types.NetTraceFolder)
 	dpc.UpdatePortStatusFromIntfStatusMap(intfStatusMap)
 	if err == nil {
 		dpc.State = types.DPCStateSuccess

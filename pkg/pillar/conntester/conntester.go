@@ -17,7 +17,7 @@ type ConnectivityTester interface {
 	// Additionally, it returns test result for each tested device network interface
 	// and network traces of executed probes if withNetTrace was enabled.
 	TestConnectivity(dns types.DeviceNetworkStatus,
-		withNetTrace bool) (types.IntfStatusMap, []netdump.TracedNetRequest, error)
+		withNetTrace bool, netTraceFolder string) (types.IntfStatusMap, []netdump.TracedNetRequest, error)
 }
 
 // RemoteTemporaryFailure can be returned by TestConnectivity to indicate that test failed

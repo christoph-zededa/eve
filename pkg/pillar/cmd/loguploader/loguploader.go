@@ -800,6 +800,7 @@ func sendToCloud(ctx *loguploaderContext, data []byte, iter int, fName string, f
 	rv, err := ctx.ctrlClient.SendOnAllIntf(ctxWork, logsURL, buf, controllerconn.RequestOptions{
 		WithNetTracing: false,
 		BailOnHTTPErr:  false,
+		NetTraceFolder: types.NetTraceFolder,
 		Iteration:      iter,
 	})
 	if rv.HTTPResp != nil {

@@ -52,7 +52,7 @@ type ControllerConnectivityTester struct {
 // TestConnectivity uses VerifyAllIntf from the controllerconn package, which
 // tries to call the "ping" API of the controller.
 func (t *ControllerConnectivityTester) TestConnectivity(dns types.DeviceNetworkStatus,
-	withNetTrace bool) (types.IntfStatusMap, []netdump.TracedNetRequest, error) {
+	withNetTrace bool, netTraceFolder string) (types.IntfStatusMap, []netdump.TracedNetRequest, error) {
 
 	t.iteration++
 	intfStatusMap := *types.NewIntfStatusMap()
@@ -130,6 +130,7 @@ func (t *ControllerConnectivityTester) TestConnectivity(dns types.DeviceNetworkS
 	rv, err := ctrlClient.VerifyAllIntf(ctx, testURL, requiredSuccessCount,
 		controllerconn.RequestOptions{
 			WithNetTracing: withNetTrace,
+			NetTraceFolder: netTraceFolder,
 			Iteration:      t.iteration,
 		})
 	intfStatusMap.SetOrUpdateFromMap(rv.IntfStatusMap)
