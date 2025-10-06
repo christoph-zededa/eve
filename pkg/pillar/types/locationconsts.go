@@ -87,6 +87,8 @@ const (
 
 	// NewlogDir - newlog directories
 	NewlogDir = "/persist/newlog"
+	// NetTraceFolder - folder to store network traces
+	NetTraceFolder = "/persist/nettrace"
 	// NewlogCollectDir - newlog collect directory for temp log files
 	NewlogCollectDir = NewlogDir + "/collect"
 	// NewlogUploadDevDir - newlog device gzip file directory ready for upload

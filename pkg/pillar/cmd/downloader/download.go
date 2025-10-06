@@ -60,7 +60,7 @@ func saveDownloadedParts(locFilename string, downloadedParts types.DownloadedPar
 // Returns a cancel bool to tell the caller to not retry using other
 // interfaces or IP addresses.
 func download(ctx *downloaderContext, trType zedUpload.SyncTransportType,
-	status Status, syncOp zedUpload.SyncOpType, downloadURL string,
+	status Status, syncOp zedUpload.SyncOpType, downloadURL string, nettracePath string,
 	auth *zedUpload.AuthInput, dpath, region string, maxsize uint64, ifname string,
 	ipSrc net.IP, filename, locFilename string, certs [][]byte, withNetTracing bool,
 	traceOpts []nettrace.TraceOpt, receiveChan chan<- CancelChannel) (
@@ -70,15 +70,15 @@ func download(ctx *downloaderContext, trType zedUpload.SyncTransportType,
 	var dEndPoint zedUpload.DronaEndPoint
 	switch trType {
 	case zedUpload.SyncHttpTr, zedUpload.SyncSftpTr:
-		dEndPoint, err = ctx.dCtx.NewSyncerDest(trType, downloadURL, dpath, auth)
+		dEndPoint, err = ctx.dCtx.NewSyncerDest(trType, downloadURL, nettracePath, dpath, auth)
 	case zedUpload.SyncAzureTr:
-		dEndPoint, err = ctx.dCtx.NewSyncerDest(trType, downloadURL, dpath, auth)
+		dEndPoint, err = ctx.dCtx.NewSyncerDest(trType, downloadURL, nettracePath, dpath, auth)
 	case zedUpload.SyncAwsTr:
-		dEndPoint, err = ctx.dCtx.NewSyncerDest(trType, region, dpath, auth)
+		dEndPoint, err = ctx.dCtx.NewSyncerDest(trType, region, nettracePath, dpath, auth)
 	case zedUpload.SyncOCIRegistryTr:
-		dEndPoint, err = ctx.dCtx.NewSyncerDest(trType, downloadURL, filename, auth)
+		dEndPoint, err = ctx.dCtx.NewSyncerDest(trType, downloadURL, nettracePath, filename, auth)
 	case zedUpload.SyncGSTr:
-		dEndPoint, err = ctx.dCtx.NewSyncerDest(trType, "", dpath, auth)
+		dEndPoint, err = ctx.dCtx.NewSyncerDest(trType, "", nettracePath, dpath, auth)
 
 	default:
 		err = fmt.Errorf("unknown transfer type: %s", trType)
@@ -289,7 +289,7 @@ func download(ctx *downloaderContext, trType zedUpload.SyncTransportType,
 // Returns a cancel bool to tell the caller to not retry using other
 // interfaces or IP addresses.
 func objectMetadata(ctx *downloaderContext, trType zedUpload.SyncTransportType,
-	syncOp zedUpload.SyncOpType, downloadURL string,
+	syncOp zedUpload.SyncOpType, downloadURL, netTraceFolder string,
 	auth *zedUpload.AuthInput, dpath, region string, ifname string,
 	ipSrc net.IP, filename string, receiveChan chan<- CancelChannel) (string, bool, error) {
 
@@ -300,7 +300,7 @@ func objectMetadata(ctx *downloaderContext, trType zedUpload.SyncTransportType,
 	var sha256 string
 	switch trType {
 	case zedUpload.SyncOCIRegistryTr:
-		dEndPoint, err = ctx.dCtx.NewSyncerDest(trType, downloadURL, filename, auth)
+		dEndPoint, err = ctx.dCtx.NewSyncerDest(trType, downloadURL, netTraceFolder, filename, auth)
 	default:
 		err = fmt.Errorf("Not supported transport type: %s", trType)
 	}

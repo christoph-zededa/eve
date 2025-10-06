@@ -764,10 +764,14 @@ func (c *Client) SendOnIntf(ctx context.Context, destURL string, intf string,
 		var client *http.Client
 		var tracing tracedReq
 		if opts.WithNetTracing {
+			// Create unique session ID (timestamp + UUID) for trace correlation.
+			id, _ := uuid.NewV4()
+			dateTime := time.Now().Format("20060102-150405")
+			sessionUUID := fmt.Sprintf("%s-%s", dateTime, id.String())
 			// Note that resolver cache is not supported when network tracing is enabled.
 			// This is actually intentional - when tracing, we want to run normal hostname
 			// IP resolution and collect traces of DNS queries.
-			tracing.client, err = nettrace.NewHTTPClient(clientConfig, c.NetTraceOpts...)
+			tracing.client, err = nettrace.NewHTTPClient(clientConfig, sessionUUID, c.NetTraceOpts...)
 			if err != nil {
 				// Log error and revert to running send operation without tracing.
 				errorLog("SendOnIntf: nettrace.NewHTTPClient failed: %v", err)
