@@ -475,6 +475,9 @@ github.com/docker/go-units
 ## explicit; go 1.13
 github.com/emicklei/go-restful/v3
 github.com/emicklei/go-restful/v3/log
+# github.com/envoyproxy/protoc-gen-validate v1.2.1
+## explicit; go 1.21.1
+github.com/envoyproxy/protoc-gen-validate/validate
 # github.com/eriknordmark/ipinfo v0.0.0-20230728132417-2d8f4da903d7
 ## explicit
 github.com/eriknordmark/ipinfo
@@ -784,7 +787,7 @@ github.com/lf-edge/edge-containers/pkg/registry
 github.com/lf-edge/edge-containers/pkg/resolver
 github.com/lf-edge/edge-containers/pkg/tgz
 # github.com/lf-edge/eve-api/go v0.0.0-20250827080504-39169fa30703 => /home/christoph/projects/eve-api/go
-## explicit; go 1.20
+## explicit; go 1.21.1
 github.com/lf-edge/eve-api/go/attest
 github.com/lf-edge/eve-api/go/auth
 github.com/lf-edge/eve-api/go/certs
