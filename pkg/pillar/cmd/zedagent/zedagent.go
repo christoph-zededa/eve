@@ -2829,6 +2829,7 @@ func handleOnboardStatusImpl(ctxArg interface{}, key string,
 	if devUUID == status.DeviceUUID {
 		return
 	}
+	triggerPublishHwInfo(ctx)
 	log.Noticef("Device UUID changed from %s to %s", devUUID, status.DeviceUUID)
 	oldUUID := devUUID
 	devUUID = status.DeviceUUID
