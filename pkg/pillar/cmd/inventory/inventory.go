@@ -27,6 +27,7 @@ import (
 	"github.com/lf-edge/eve/pkg/pillar/agentbase"
 	"github.com/lf-edge/eve/pkg/pillar/agentlog"
 	"github.com/lf-edge/eve/pkg/pillar/base"
+	"github.com/lf-edge/eve/pkg/pillar/containerd"
 	"github.com/lf-edge/eve/pkg/pillar/controllerconn"
 	"github.com/lf-edge/eve/pkg/pillar/hardware"
 	"github.com/lf-edge/eve/pkg/pillar/netmonitor"
@@ -241,6 +242,20 @@ func CreateInventory() (*hardwareinventory.InventoryMsg, error) {
 	if len(errStr) > 0 {
 		err = fmt.Errorf("querying for hardware failed: %s", errStr)
 	}
+
+	var buf bytes.Buffer
+
+	args := []string{"/usr/bin/spec.sh", "-v", "-u"}
+
+	env := []string{}
+
+	taskID := fmt.Sprintf("%d", time.Now().Unix())
+	err = containerd.RunInDebugContainer(context.Background(), taskID, &buf, args, env, 15*time.Minute)
+	if err != nil {
+		log.Warnf("running %+v failed: %+v", args, err)
+	}
+
+	imc.msg.SpecSh = buf.String()
 
 	return imc.msg, err
 }

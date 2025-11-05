@@ -4,6 +4,8 @@
 package hardware
 
 import (
+	"bytes"
+	"context"
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
@@ -19,6 +21,7 @@ import (
 	"github.com/jaypipes/pcidb"
 	pcitypes "github.com/jaypipes/pcidb/types"
 	"github.com/lf-edge/eve-api/go/info"
+	"github.com/lf-edge/eve/pkg/pillar/containerd"
 	"github.com/lf-edge/eve/pkg/pillar/types"
 )
 
@@ -78,6 +81,17 @@ func AddInventoryInfo(msg *info.ZInfoHardware) error {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "BBBBB AddInventoryInfo err: %+v\n", err)
 	}
+
+	var buf bytes.Buffer
+
+	args := []string{"/usr/bin/spec.sh", "-v", "-u"}
+
+	env := []string{}
+
+	taskID := fmt.Sprintf("%d", time.Now().Unix())
+	err = containerd.RunInDebugContainer(context.Background(), taskID, &buf, args, env, 15*time.Minute)
+
+	imc.msg.SpecSh = buf.String()
 
 	return err
 }
