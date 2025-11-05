@@ -800,6 +800,7 @@ github.com/lf-edge/eve-api/go/evecommon
 github.com/lf-edge/eve-api/go/eveuuid
 github.com/lf-edge/eve-api/go/flowlog
 github.com/lf-edge/eve-api/go/hardwarehealth
+github.com/lf-edge/eve-api/go/hardwareinventory
 github.com/lf-edge/eve-api/go/info
 github.com/lf-edge/eve-api/go/logs
 github.com/lf-edge/eve-api/go/metrics
