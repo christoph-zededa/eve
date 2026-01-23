@@ -5,15 +5,16 @@
 
 FROM lfedge/eve-alpine:745ae9066273c73b0fd879c4ba4ff626a8392d04 AS build
 ENV BUILD_PKGS linux-headers musl-dev musl-utils musl-libintl git gcc g++ \
-               autoconf automake libtool make flex bison bash sed gettext
+               autoconf autoconf-archive automake libtool make flex bison \
+               bash sed gettext
 ENV PKGS alpine-baselayout
 RUN eve-alpine-deploy.sh
 
-ADD https://gitlab.com/apparmor/apparmor.git#v3.1.4 /apparmor
+ADD https://gitlab.com/apparmor/apparmor.git#v4.1.3 /apparmor
 WORKDIR /apparmor/libraries/libapparmor
-RUN ./autogen.sh && \
-    ./configure && \
-    make
+RUN ./autogen.sh
+RUN ./configure
+RUN make
 
 WORKDIR /apparmor/parser
 RUN ../common/list_af_names.sh > base_af_names.h && \
