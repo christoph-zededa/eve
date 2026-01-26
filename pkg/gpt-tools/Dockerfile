@@ -1,9 +1,9 @@
-FROM lfedge/eve-alpine:745ae9066273c73b0fd879c4ba4ff626a8392d04 AS build
-ENV BUILD_PKGS gcc make file patch libc-dev util-linux-dev linux-headers openssl-dev g++ tar
+FROM lfedge/eve-alpine:12eac5bb74d78ba554b3e2281d63db34375f091f AS build
+ENV BUILD_PKGS gcc make file patch libc-dev util-linux-dev linux-headers openssl-dev util-linux-dev util-linux-static g++ tar
 RUN eve-alpine-deploy.sh
 
 ENV POPT_VERSION 1.16
-ENV GPTFDISK_VERSION 1.0.3
+ENV GPTFDISK_VERSION 1.0.10
 ENV VBOOT_REPO https://chromium.googlesource.com/chromiumos/platform/vboot_reference
 ENV VBOOT_COMMIT e0b3841863281a3fc3b188bfbab55d401fabdc73
 
@@ -21,7 +21,6 @@ WORKDIR /popt/popt-${POPT_VERSION}
 COPY patches/popt* /popt
 RUN for patch in /popt/*patch ; do patch -p1 < $patch ; done
 RUN ./configure && make -j "$(getconf _NPROCESSORS_ONLN)" && make install
-
 
 WORKDIR /
 RUN mkdir -p /sgdisk/patches
@@ -51,7 +50,7 @@ RUN tar xvzf vboot_reference-${VBOOT_COMMIT}.tar.gz
 
 WORKDIR /vboot_reference
 RUN [ -d host/arch/riscv64 ] || cp -r host/arch/arm host/arch/riscv64
-RUN make cgpt LDFLAGS=-static CFLAGS=-Wno-error=address-of-packed-member
+RUN make cgpt LDFLAGS=-static CFLAGS="-Wno-error=address-of-packed-member -Wno-implicit-function-declaration"
 RUN cp build/cgpt/cgpt /out/cgpt
 
 FROM scratch
