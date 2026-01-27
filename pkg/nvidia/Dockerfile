@@ -51,17 +51,6 @@ COPY cdi/${JETPACK_VER} /cdi
 
 ADD ${JETSON_LINUX} /jetson_linux.tbz2
 
-# We need to build dpkg in order to get support for .deb packages
-# compressed with zstd. Unfortunately dpkg from Alpine 3.16 doesn't support
-# it. It won't be required to build when we upgrade to Alpine 3.20.
-ENV DPKG_REVISION=1.22.6
-ADD --keep-git-dir=true https://salsa.debian.org/dpkg-team/dpkg.git#${DPKG_REVISION} /dpkg
-WORKDIR /dpkg
-RUN ./autogen && \
-    ./configure --prefix=/ && \
-    make -j "$(nproc)" && \
-    make install
-
 # Extract tarball
 WORKDIR /
 RUN tar -xjf /jetson_linux.tbz2
