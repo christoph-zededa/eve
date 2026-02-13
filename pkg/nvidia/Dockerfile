@@ -19,8 +19,10 @@ RUN git config --global user.email 'builder@projecteve.dev' && \
     git config --global user.name 'Project EVE'
 
 # Jetpack tarballs
-ENV JETSON_JP5=https://developer.nvidia.com/downloads/embedded/l4t/r35_release_v5.0/release/jetson_linux_r35.5.0_aarch64.tbz2
-ENV JETSON_JP6=https://developer.nvidia.com/downloads/embedded/l4t/r36_release_v3.0/release/jetson_linux_r36.3.0_aarch64.tbz2
+#ENV JETSON_JP5=https://developer.nvidia.com/downloads/embedded/l4t/r35_release_v5.0/release/jetson_linux_r35.5.0_aarch64.tbz2
+#ENV JETSON_JP6=https://developer.nvidia.com/downloads/embedded/l4t/r36_release_v3.0/release/jetson_linux_r36.3.0_aarch64.tbz2
+ENV JETSON_JP5=jetson_linux_r35.5.0_aarch64.tbz2
+ENV JETSON_JP6=jetson_linux_r36.3.0_aarch64.tbz2
 
 # Default Jetpack version
 ENV JETSON_LINUX=${JETSON_JP5}
@@ -49,7 +51,8 @@ RUN echo "${EVE_PLATFORM}" > /eve-platform
 # CDI Files
 COPY cdi/${JETPACK_VER} /cdi
 
-ADD ${JETSON_LINUX} /jetson_linux.tbz2
+COPY ${JETSON_LINUX} /jetson_linux.tbz2
+#ADD ${JETSON_LINUX} /jetson_linux.tbz2
 
 # Extract tarball
 WORKDIR /
