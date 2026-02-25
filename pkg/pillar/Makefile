@@ -68,7 +68,7 @@ endif
 $(APPS): $(DISTDIR)/$(APPS)
 $(DISTDIR)/$(APPS): $(DISTDIR)
 	@echo "Building $@"
-	GO111MODULE=on GOOS=linux GOARCH=$(ZARCH) go build -mod=vendor $(TAGS) $(GCFLAGS) $(LDFLAGS) -o $@ ./$(@F)
+	GO111MODULE=on GOOS=linux GOARCH=$(ZARCH) go build -ldflags "-s -w" -mod=vendor $(TAGS) $(GCFLAGS) $(LDFLAGS) -o $@ ./$(@F)
 
 $(APPS1): $(DISTDIR)
 	@echo $@
@@ -132,4 +132,11 @@ fmt-check-details:
 	@gofmt -d $(GOFILES)
 
 vet:
-	go vet $(TAGS) ./...
+	CGO_CFLAGS="-Dfstat64=fstat -Dstat64=stat" go vet $(TAGS) ./...
+
+ubuntu: Dockerfile.ubuntu
+	grep -q 1 /proc/sys/kernel/perf_event_paranoid
+	time docker build --build-arg UID=${shell id -u} --build-arg GID=${shell id -g} -f Dockerfile.ubuntu -t pillar-ubuntu .
+	@echo "---------------------------"
+	docker run -e TERM=${TERM} --cap-add=SYS_PTRACE --cap-add=SYS_ADMIN --privileged --security-opt seccomp=unconfined -v $(shell pwd):/src -it pillar-ubuntu /bin/bash
+	#docker run --privileged -v $(shell pwd):/src -it pillar-ubuntu /bin/bash
