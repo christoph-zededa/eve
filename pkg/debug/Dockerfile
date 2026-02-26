@@ -14,18 +14,17 @@
 FROM lfedge/eve-recovertpm:d7dc09981569cb12a5591c4b49ea644da6ffc2c1 AS recovertpm
 FROM lfedge/eve-bpftrace:5a3ba5ef275e50e6dbd6b960046f892bb35110ce AS bpftrace
 FROM lfedge/eve-alpine:12eac5bb74d78ba554b3e2281d63db34375f091f AS build
-ENV BUILD_PKGS="abuild curl tar make linux-headers patch g++ git gcc gpg gettext gettext-static ncurses-dev jq autoconf openssl-dev zlib-dev zlib-static gpg-agent"
+ENV BUILD_PKGS="abuild curl tar make linux-headers patch g++ git gcc ncurses-dev autoconf zlib-static zlib-dev"
 # Feel free to add additional packages here, but be aware that
 # EVE's rootfs image can be no larger than 300Mb (and don't
 # forget to check on all supported architectures: e.g. arm64
 # binaries are typically larger than amd64 ones).
 # RUN apk add --no-cache gdb valgrind
-ENV PKGS="openssl tini util-linux ca-certificates pciutils usbutils tcpdump perf strace iproute2-minimal curl zlib procps-ng tar dmidecode iptables dhcpcd tio socat"
+ENV PKGS="openssl openssh-client openssh-server tini util-linux ca-certificates pciutils usbutils tcpdump perf strace iproute2-minimal curl zlib procps-ng tar dmidecode iptables dhcpcd tio socat"
 
 RUN eve-alpine-deploy.sh
 
 ENV LSHW_VERSION="02.20"
-ENV OPENSSH_VERSION="10.0p1"
 
 # setting up building account
 RUN adduser -G abuild -D builder || :
@@ -67,66 +66,13 @@ ADD https://github.com/pixel/hexedit/archive/refs/tags/1.5.tar.gz ../1.5.tar.gz
 RUN tar -C .. -xzvf ../1.5.tar.gz
 RUN ./autogen.sh && ./configure && make DESTDIR=/out install
 
-WORKDIR /usr/src
-ADD https://cdn.openbsd.org/pub/OpenBSD/OpenSSH/portable/openssh-${OPENSSH_VERSION}.tar.gz /usr/src
-ADD https://cdn.openbsd.org/pub/OpenBSD/OpenSSH/portable/openssh-${OPENSSH_VERSION}.tar.gz.asc /usr/src
-ADD https://cdn.openbsd.org/pub/OpenBSD/OpenSSH/RELEASE_KEY.asc /usr/src
-
-# import and verify in same `run` preventing db open race
-RUN gpg --import --allow-weak-key-signatures /usr/src/RELEASE_KEY.asc && \
-    gpg --verify --allow-weak-key-signatures openssh-${OPENSSH_VERSION}.tar.gz.asc openssh-${OPENSSH_VERSION}.tar.gz
-RUN tar xvf openssh-${OPENSSH_VERSION}.tar.gz
-WORKDIR /usr/src/openssh-${OPENSSH_VERSION}
-RUN ./configure \
-    --prefix=/usr \
-    --sysconfdir=/etc/ssh \
-    --mandir=/usr/share/man \
-    --with-pid-dir=/run \
-    --with-mantype=doc \
-    --disable-utmp \
-    --disable-wtmp \
-    --disable-lastlog \
-    --disable-strip \
-    --with-privsep-path=/var/empty \
-    --with-xauth=/usr/bin/xauth \
-    --with-default-path='/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin' \
-    --with-privsep-user=sshd \
-    --with-ssl-engine
-
-RUN make -j "$(getconf _NPROCESSORS_ONLN)"
-RUN make install
-
-RUN /usr/bin/install -c -m 0755 -s ssh /out/usr/bin/ssh
-RUN /usr/bin/install -c -m 0755 -s scp /out/usr/bin/scp
-RUN /usr/bin/install -c -m 0755 -s ssh-keygen /out/usr/bin/ssh-keygen
-RUN /usr/bin/install -c -m 0755 -s sshd /out/usr/sbin/sshd
-RUN /usr/bin/install -c -m 0755 -s sshd-session /out/usr/libexec/sshd-session
-RUN /usr/bin/install -c -m 4711 -s ssh-keysign /out/usr/libexec/ssh-keysign
-RUN /usr/bin/install -c -m 0755 -s ssh-pkcs11-helper /out/usr/libexec/ssh-pkcs11-helper
-RUN /usr/bin/install -c -m 0755 -s ssh-sk-helper /out/usr/libexec/ssh-sk-helper
-RUN /usr/bin/install -c -m 0755 -s sftp /out/usr/bin/sftp
-RUN /usr/bin/install -c -m 0755 -s sftp-server /out/usr/libexec/sftp-server
-RUN mkdir -p /out/etc/ssh
-COPY ssh/* /out/etc/ssh/
-RUN mkdir -p /out/var/empty
-
 # tweaking various bit
 WORKDIR /out
 COPY debug-services.sh ssh-service.sh edgeview-collectinfo.sh spec.sh scripts/ ./usr/bin/
-
-SHELL ["/bin/ash", "-eo", "pipefail", "-c"]
-# Ensure that the output of spec.sh is valid json
-RUN ./usr/bin/spec.sh -v 2>/dev/null | jq . > /dev/null
-RUN ./usr/bin/spec.sh 2>/dev/null | jq . > /dev/null
-RUN mkdir /tmp/bin
-COPY tests/lsusb /tmp/bin
-RUN chmod a+x /tmp/bin/lsusb
-RUN PATH=/tmp/bin:$PATH /out/usr/bin/spec.sh -u 2>/dev/null | jq .
-
-RUN mkdir -p ./etc/ssh ./root/.ssh
-RUN chmod 0700 ./root/.ssh
+RUN mkdir -p ./etc/ssh ./root/.ssh && chmod 0700 ./root/.ssh
 RUN cp /etc/passwd /etc/group ./etc/
 RUN ln -s /run ./var/run
+RUN sed -i -e 's#AllowTcpForwarding.*$#AllowTcpForwarding yes#' ./etc/ssh/sshd_config
 
 RUN mkdir /bpftrace
 COPY --from=bpftrace / /bpftrace
