@@ -49,14 +49,19 @@ func main() {
 				os.Exit(0)
 			}
 
+			log.Printf("Collecting info from git ...")
 			gce.FetchOrigin()
 
 			gce.CalculateBaseCommit()
 			gce.CollectActionsGitTree()
 			gce.CollectDirtyGitTree()
+			log.Printf("Collecting info from git done")
 
+			log.Printf("Diffing %d files", gce.CountRelPaths())
 			gce.Diff()
+			log.Printf("Diffing done")
 
+			log.Printf("Dump Action Plan")
 			gce.DumpActionToDos(w)
 
 			if outputFile != "" {
