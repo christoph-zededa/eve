@@ -254,8 +254,8 @@ func (di *diffInfo) print() {
 		file string
 		diffInfoFile
 	}
-	files := make([]idxFile, 0, len(di.currentProcessingFiles))
 	di.RLock()
+	files := make([]idxFile, 0, len(di.currentProcessingFiles))
 	for file, val := range di.currentProcessingFiles {
 		files = append(files, idxFile{
 			file: file,

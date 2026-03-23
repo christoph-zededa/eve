@@ -3,13 +3,11 @@
 
 package pkg
 
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
+import (
+	"encoding/binary"
 
-	return b
-}
+	cxlrubytes "github.com/cloudxaas/gocache/lru/bytes"
+)
 
 func shaveLast(str []string) []string {
 	if len(str) == 0 {
@@ -28,14 +26,57 @@ type lcsInput struct {
 	to   []string
 }
 
-func (l lcsInput) Key() [2]int {
-	return [2]int{len(l.from), len(l.to)}
+func (l lcsInput) KeyBytes() []byte {
+	var b []byte
+	b = binary.BigEndian.AppendUint64(b, uint64(len(l.from)))
+	b = binary.BigEndian.AppendUint64(b, uint64(len(l.to)))
+
+	return b
+}
+
+type lcsMemoLRU struct {
+	cache *cxlrubytes.Cache
+}
+
+func (lml *lcsMemoLRU) get(li lcsInput) (int, bool) {
+	key := li.KeyBytes()
+	valBytes, found := lml.cache.Get(key)
+	if !found {
+		return 0, false
+	}
+
+	val := binary.BigEndian.Uint64(valBytes)
+
+	return int(val), true
+}
+
+func (lml *lcsMemoLRU) add(li lcsInput, val int) {
+	key := li.KeyBytes()
+	b := make([]byte, 8)
+
+	binary.BigEndian.PutUint64(b, uint64(val))
+
+	err := lml.cache.Set(key, b)
+	if err != nil {
+		panic(err)
+	}
 }
 
 type lcsMemo struct {
-	memo map[[2]int]int
+	memo *lcsMemoLRU
 
 	ldfs []LineDiff
+}
+
+func newLcsMemo() lcsMemo {
+	lm := lcsMemo{
+		ldfs: []LineDiff{},
+		memo: &lcsMemoLRU{},
+	}
+
+	lm.memo.cache = cxlrubytes.NewLRUCache(5*1024*1024*1024, 1024*1024)
+
+	return lm
 }
 
 func (l *lcsMemo) lcs(from, to []string, count int) int {
@@ -50,8 +91,8 @@ func (l *lcsMemo) lcs(from, to []string, count int) int {
 		from: from,
 		to:   to,
 	}
-	memoKey := li.Key()
-	val, found := l.memo[memoKey]
+	val, found := l.memo.get(li)
+	memoRet := val + count
 	if found {
 		return val + count
 	}
@@ -63,30 +104,31 @@ func (l *lcsMemo) lcs(from, to []string, count int) int {
 			from: shaveLast(from),
 			to:   shaveLast(to),
 		}
-		l.memo[li.Key()] = ret - count - 1
+		l.memo.add(li, ret-count-1)
 	} else {
 		ret = max(l.lcs(shaveLast(from), to, count), l.lcs(from, shaveLast(to), count))
-		l.memo[li.Key()] = ret - count
+		l.memo.add(li, ret-count)
 	}
 
+	if found {
+		if memoRet != (val + count) {
+			panic("memo wrong")
+		}
+	}
 	return ret
 }
 
 func lcs(from, to []string) int {
-	lm := lcsMemo{
-		memo: map[[2]int]int{},
-	}
+	lm := newLcsMemo()
 
 	return lm.lcs(from, to, 0)
 }
 
-func (l *lcsMemo) printDiff(from, to []string) {
+func (l *lcsMemo) makeLineDiffs(from, to []string) {
 	if len(from) > 0 && len(to) > 0 && lastElem(from) == lastElem(to) {
-		l.printDiff(shaveLast(from), shaveLast(to))
-		// fmt.Printf("  %s\n", lastElem(from))
+		l.makeLineDiffs(shaveLast(from), shaveLast(to))
 	} else if len(to) > 0 && (len(from) == 0 || l.lcs(from, shaveLast(to), 0) >= l.lcs(shaveLast(from), to, 0)) {
-		l.printDiff(from, shaveLast(to))
-		// fmt.Printf("+ %s\n", lastElem(to))
+		l.makeLineDiffs(from, shaveLast(to))
 		l.ldfs = append(l.ldfs, LineDiff{
 			Operation:  LineAdd,
 			Line:       lastElem(to),
@@ -94,8 +136,7 @@ func (l *lcsMemo) printDiff(from, to []string) {
 			TypeOfLine: LineProperty{},
 		})
 	} else if len(from) > 0 && (len(to) == 0 || l.lcs(from, shaveLast(to), 0) < l.lcs(shaveLast(from), to, 0)) {
-		l.printDiff(shaveLast(from), to)
-		// fmt.Printf("- %s\n", lastElem(from))
+		l.makeLineDiffs(shaveLast(from), to)
 		l.ldfs = append(l.ldfs, LineDiff{
 			Operation:  LineDel,
 			Line:       lastElem(from),
@@ -106,12 +147,9 @@ func (l *lcsMemo) printDiff(from, to []string) {
 }
 
 func Diff(from, to []string) []LineDiff {
-	lm := lcsMemo{
-		memo: map[[2]int]int{},
-		ldfs: []LineDiff{},
-	}
+	lm := newLcsMemo()
 
-	lm.printDiff(from, to)
+	lm.makeLineDiffs(from, to)
 
 	return lm.ldfs
 }
