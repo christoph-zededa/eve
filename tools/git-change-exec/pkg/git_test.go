@@ -127,7 +127,7 @@ func (ta *testAction) Do([]ActionToDo) error {
 func (ta *testAction) Close() {
 }
 
-func runGCE(t *testing.T, ta *testAction) GitChangeExec {
+func runGCE(t *testing.T, ta *testAction) *GitChangeExec {
 	var err error
 	gce := NewGitChangeExec()
 	gce.G, err = git.PlainOpenWithOptions("./", &git.PlainOpenOptions{DetectDotGit: true})

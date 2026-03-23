@@ -11,8 +11,15 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"runtime"
+	"slices"
 	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
 	"unicode"
+
+	"golang.org/x/sync/errgroup"
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/config"
@@ -133,6 +140,13 @@ type GitChangeExec struct {
 	relPaths       map[string]struct{}
 	baseCommit     *object.Commit
 	originPath     string
+	di             diffInfo
+
+	diffMutex sync.Mutex
+}
+
+func (gce *GitChangeExec) CountRelPaths() int {
+	return len(gce.relPaths)
 }
 
 func debugLog(fmt string, args ...any) {
@@ -141,7 +155,7 @@ func debugLog(fmt string, args ...any) {
 	}
 }
 
-func NewGitChangeExec() GitChangeExec {
+func NewGitChangeExec() *GitChangeExec {
 	gce := GitChangeExec{
 		ActionDos: ActionToDos{
 			Actions: map[string][]ActionToDo{},
@@ -150,7 +164,7 @@ func NewGitChangeExec() GitChangeExec {
 		relPaths:       map[string]struct{}{},
 	}
 
-	return gce
+	return &gce
 }
 
 func (gce *GitChangeExec) GoToGitRootDir() {
@@ -202,15 +216,124 @@ func (gce *GitChangeExec) FetchOrigin() {
 	}
 }
 
-func (gce *GitChangeExec) Diff() {
-	for path := range gce.relPaths {
-		gce.diffPath(path)
+type diffInfoFile struct {
+	idx       int
+	fromCount int
+	toCount   int
+	t         time.Time
+}
+
+type diffInfo struct {
+	currentProcessingFiles map[string]diffInfoFile
+	countFiles             int
+
+	doneState atomic.Bool
+
+	addedFileCount int
+	sync.RWMutex
+}
+
+func (di *diffInfo) addFile(file string, fromCount, toCount int) {
+	di.Lock()
+	di.addedFileCount++
+	di.currentProcessingFiles[file] = diffInfoFile{
+		idx:       di.addedFileCount,
+		fromCount: fromCount,
+		toCount:   toCount,
+		t:         time.Now(),
 	}
+	di.Unlock()
+}
+func (di *diffInfo) delFile(file string) {
+	di.Lock()
+	delete(di.currentProcessingFiles, file)
+	di.Unlock()
+}
+func (di *diffInfo) print() {
+	type idxFile struct {
+		file string
+		diffInfoFile
+	}
+	files := make([]idxFile, 0, len(di.currentProcessingFiles))
+	di.RLock()
+	for file, val := range di.currentProcessingFiles {
+		files = append(files, idxFile{
+			file: file,
+			diffInfoFile: diffInfoFile{
+				idx:       val.idx,
+				fromCount: val.fromCount,
+				toCount:   val.toCount,
+				t:         val.t,
+			},
+		})
+	}
+	di.RUnlock()
+	if len(files) == 0 {
+		return
+	}
+	log.Printf("Currently processing:")
+	slices.SortFunc(files, func(a, b idxFile) int {
+		return a.idx - b.idx
+	})
+	for _, file := range files {
+		// if file.idx == 0 && file.file == "" {
+		// 	panic("foo")
+		// }
+		if strings.Contains(file.file, " => ") {
+			panic("what's this???")
+		}
+		dur := time.Since(file.t)
+		log.Printf("\t%d %s (%d -> %d) - %s", file.idx, file.file, file.fromCount, file.toCount, dur)
+	}
+}
+
+func (di *diffInfo) printRoutine() {
+	for {
+		di.print()
+		time.Sleep(1 * time.Second)
+
+		if di.doneState.Load() {
+			return
+		}
+	}
+}
+
+func (di *diffInfo) done() {
+	di.doneState.Store(true)
+}
+
+func (gce *GitChangeExec) Diff() {
+	eg := errgroup.Group{}
+	eg.SetLimit(runtime.NumCPU())
+
+	gce.di = diffInfo{
+		currentProcessingFiles: map[string]diffInfoFile{},
+		RWMutex:                sync.RWMutex{},
+		countFiles:             len(gce.relPaths),
+		doneState:              atomic.Bool{},
+		addedFileCount:         0,
+	}
+
+	if len(gce.relPaths) > 1000 {
+		go gce.di.printRoutine()
+		defer gce.di.done()
+	}
+
+	for path := range gce.relPaths {
+
+		eg.Go(func() error {
+			gce.diffPath(path)
+			return nil
+		})
+	}
+
+	eg.Wait()
 }
 
 func (gce *GitChangeExec) diffPath(path string) {
 	var oldContent string
 
+	gce.diffMutex.Lock()
 	file, err := gce.baseCommit.File(path)
 	if err == nil {
 		oldContent, err = file.Contents()
@@ -218,6 +341,7 @@ func (gce *GitChangeExec) diffPath(path string) {
 			log.Fatalf("could not get file contents of %s: %v", path, err)
 		}
 	}
+	gce.diffMutex.Unlock()
 
 	linesFrom := Parse(path, oldContent)
 
@@ -229,6 +353,8 @@ func (gce *GitChangeExec) diffPath(path string) {
 
 	fromLines := strings.Split(oldContent, "\n")
 	toLines := strings.Split(string(bs), "\n")
+	gce.di.addFile(path, len(fromLines), len(toLines))
+	defer gce.di.delFile(path)
 
 	dfs := Diff(fromLines, toLines)
 	for i := range dfs {
@@ -245,12 +371,16 @@ func (gce *GitChangeExec) diffPath(path string) {
 		if df.Operation != LineNop {
 			allEqual = false
 		}
+		gce.diffMutex.Lock()
 		gce.addActionByLineDiff(path, df)
+		gce.diffMutex.Unlock()
 	}
 	if allEqual {
 		return
 	}
+	gce.diffMutex.Lock()
 	gce.addActionByPath(path)
+	gce.diffMutex.Unlock()
 
 }
 
@@ -300,25 +430,35 @@ func (gce *GitChangeExec) CollectActionsGitTree() {
 		log.Fatalf("getting log for iteration failed: %v", err)
 	}
 
+	eg := errgroup.Group{}
+	eg.SetLimit(runtime.NumCPU())
+	storeMutex := sync.Mutex{}
+
 	err = logIter.ForEach(func(c *object.Commit) error {
 		if c.Hash == gce.baseCommit.Hash {
 			return storer.ErrStop
 		}
 
-		commitStats, err := c.Stats()
-		if err != nil {
-			log.Fatalf("getting commit stats failed: %v", err)
-		}
+		eg.Go(func() error {
+			commitStats, err := c.Stats()
+			if err != nil {
+				log.Fatalf("getting commit stats failed: %v", err)
+			}
 
-		for _, st := range commitStats {
-			gce.storePath(st.Name)
-		}
+			storeMutex.Lock()
+			for _, st := range commitStats {
+				gce.storePath(st.Name)
+			}
+			storeMutex.Unlock()
 
+			return nil
+		})
 		return nil
 	})
 	if err != nil {
 		log.Fatalf("iterating over commits failed: %v", err)
 	}
+	eg.Wait()
 	logIter.Close()
 }
 
