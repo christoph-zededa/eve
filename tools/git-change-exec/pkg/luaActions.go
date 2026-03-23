@@ -107,6 +107,7 @@ func (la *LuaAction) match(path string, ld LineDiff) bool {
 		path: path,
 	}
 
+	state.SetTop(0)
 	if err := state.CallByParam(lua.P{
 		Fn:      state.GetGlobal("match"),
 		NRet:    1,
