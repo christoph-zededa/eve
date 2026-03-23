@@ -71,8 +71,7 @@ func (la *LuaAction) do(actionToDos []ActionToDo) error {
 }
 
 type luaFile struct {
-	path  string
-	lines []string
+	path string
 }
 
 func (lf luaFile) Path() string {
@@ -80,7 +79,14 @@ func (lf luaFile) Path() string {
 }
 
 func (lf luaFile) Lines() []string {
-	return lf.lines
+	bs, err := os.ReadFile(lf.path)
+	if err != nil {
+		log.Fatalf("could not read file %s: %v", lf.path, err)
+	}
+
+	lines := strings.Split(string(bs), "\n")
+
+	return lines
 }
 
 func (la *LuaAction) match(path string, ld LineDiff) bool {
@@ -97,15 +103,8 @@ func (la *LuaAction) match(path string, ld LineDiff) bool {
 
 	state := la.matchState
 
-	bs, err := os.ReadFile(path)
-	if err != nil {
-		log.Fatalf("could not read file %s: %v", path, err)
-	}
-
-	lines := strings.Split(string(bs), "\n")
 	lf := luaFile{
-		path:  path,
-		lines: lines,
+		path: path,
 	}
 
 	if err := state.CallByParam(lua.P{
