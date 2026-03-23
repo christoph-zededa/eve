@@ -8,7 +8,10 @@ import (
 	"git-change-exec/pkg"
 	"io"
 	"log"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
+	"runtime/pprof"
 
 	"github.com/go-git/go-git/v5"
 	"github.com/spf13/cobra"
@@ -16,12 +19,32 @@ import (
 
 func main() {
 	var outputFile string
+	var doPprof bool
+
+	gcStr := fmt.Sprintf("gc-%d", os.Getpid())
 
 	rootCmd := cobra.Command{
 		Args: cobra.MinimumNArgs(1),
 		Use:  "run <path>",
 		Run: func(_ *cobra.Command, args []string) {
 			var err error
+
+			if doPprof {
+				const pprofURL = "localhost:6060"
+				go func() {
+					log.Println(http.ListenAndServe(pprofURL, nil))
+				}()
+				log.Printf("Listening on %s for pprof", pprofURL)
+
+				cpuFh, err := os.Create(gcStr + ".cpu")
+				if err != nil {
+					panic(err)
+				}
+				defer cpuFh.Close()
+
+				pprof.StartCPUProfile(cpuFh)
+				defer pprof.StopCPUProfile()
+			}
 
 			gce := pkg.NewGitChangeExec()
 
@@ -42,7 +65,6 @@ func main() {
 			}
 
 			gce.GoToGitRootDir()
-			defer gce.ChangeBackDir()
 
 			if len(gce.ActionsToCheck) == 0 {
 				fmt.Printf("no actions to check\n")
@@ -67,14 +89,33 @@ func main() {
 			if outputFile != "" {
 				w.Close()
 			}
+
+			gce.ChangeBackDir()
+
+			if doPprof {
+				fh, err := os.Create(gcStr + ".mem")
+				if err != nil {
+					panic(err)
+				}
+				err = pprof.WriteHeapProfile(fh)
+				if err != nil {
+					panic(err)
+				}
+				err = fh.Close()
+				if err != nil {
+					panic(err)
+				}
+
+				log.Printf("mem profile written to %s", fh.Name())
+			}
 		},
 	}
 
 	rootCmd.PersistentFlags().StringVarP(&outputFile, "output", "o", "", "output file")
+	rootCmd.PersistentFlags().BoolVar(&doPprof, "pprof", false, "enable pprof")
 
 	err := rootCmd.Execute()
 	if err != nil {
 		log.Fatalf("corba failed with: %v", err)
 	}
-
 }
