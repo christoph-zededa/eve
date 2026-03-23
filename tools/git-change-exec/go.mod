@@ -1,12 +1,14 @@
 module git-change-exec
 
-go 1.24.7
+go 1.25.0
 
 require (
+	github.com/cloudxaas/gocache/lru/bytes v0.0.0-20240609230041-e4e37041889c
 	github.com/go-git/go-git/v5 v5.16.2
 	github.com/smacker/go-tree-sitter v0.0.0-20240827094217-dd81d9e9be82
 	github.com/spf13/cobra v1.9.1
 	github.com/yuin/gopher-lua v1.1.1
+	golang.org/x/sync v0.20.0
 	layeh.com/gopher-luar v1.0.11
 )
 
@@ -15,6 +17,7 @@ require (
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/ProtonMail/go-crypto v1.3.0 // indirect
 	github.com/cloudflare/circl v1.6.1 // indirect
+	github.com/cloudxaas/gocx v0.0.3 // indirect
 	github.com/cyphar/filepath-securejoin v0.5.0 // indirect
 	github.com/emirpasic/gods v1.18.1 // indirect
 	github.com/go-git/gcfg v1.5.1-0.20230307220236-3a3c6141e376 // indirect
@@ -29,6 +32,7 @@ require (
 	github.com/skeema/knownhosts v1.3.1 // indirect
 	github.com/spf13/pflag v1.0.6 // indirect
 	github.com/xanzy/ssh-agent v0.3.3 // indirect
+	github.com/zeebo/xxh3 v1.0.2 // indirect
 	golang.org/x/crypto v0.42.0 // indirect
 	golang.org/x/net v0.44.0 // indirect
 	golang.org/x/sys v0.36.0 // indirect
