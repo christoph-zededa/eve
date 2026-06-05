@@ -1,1 +1,4 @@
-^git-change-exec
+pkg/actionToDos_easyjson.go
+cmd/gc/gc
+cmd/ge/ge
+cmd/git-exec/git-exec

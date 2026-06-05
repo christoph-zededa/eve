@@ -4,23 +4,25 @@
 package pkg
 
 import (
-	"encoding/json"
 	"fmt"
+	"github.com/mailru/easyjson"
 	"io"
 	"log"
 )
 
+//easyjson:json
 type ActionToDos struct {
 	Actions map[string][]ActionToDo
 }
 
+//easyjson:json
 type ActionToDo struct {
 	Path string
 	Ld   *LineDiff
 }
 
 func (atd *ActionToDos) dumpActionToDos(w io.Writer) {
-	bs, err := json.MarshalIndent(atd, "", "\t")
+	bs, err := easyjson.Marshal(atd)
 	if err != nil {
 		log.Fatalf("json marshalling failed: %v", err)
 	}

@@ -4,13 +4,13 @@
 package main
 
 import (
-	"encoding/json"
 	"git-change-exec/pkg"
 	"io"
 	"log"
 	"os"
 
 	"github.com/go-git/go-git/v5"
+	"github.com/mailru/easyjson"
 	"github.com/spf13/cobra"
 )
 
@@ -31,7 +31,7 @@ func main() {
 
 			actionToDos := pkg.ActionToDos{}
 
-			err = json.Unmarshal(bs, &actionToDos)
+			err = easyjson.Unmarshal(bs, &actionToDos)
 			if err != nil {
 				log.Fatalf("failed to unmarshal: %+v", err)
 			}
