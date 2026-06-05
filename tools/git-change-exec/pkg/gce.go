@@ -4,7 +4,6 @@
 package pkg
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -121,15 +120,6 @@ func (ld LineDiff) IsComment() CommentType {
 	}
 
 	return Undecided
-}
-
-type ActionToDos struct {
-	Actions map[string][]ActionToDo
-}
-
-type ActionToDo struct {
-	Path string
-	Ld   *LineDiff
 }
 
 type GitChangeExec struct {
@@ -562,25 +552,6 @@ func (gce *GitChangeExec) storePath(path string) {
 
 func (gce *GitChangeExec) DumpActionToDos(w io.Writer) {
 	gce.ActionDos.dumpActionToDos(w)
-}
-
-func (atd *ActionToDos) dumpActionToDos(w io.Writer) {
-	bs, err := json.MarshalIndent(atd, "", "\t")
-	if err != nil {
-		log.Fatalf("json marshalling failed: %v", err)
-	}
-
-	fmt.Fprintf(w, "%s\n", string(bs))
-}
-
-func (atd *ActionToDos) addActionToDo(a Action, path string, ld *LineDiff) {
-	if atd.Actions[Id(a)] == nil {
-		atd.Actions[Id(a)] = make([]ActionToDo, 0)
-	}
-	atd.Actions[Id(a)] = append(atd.Actions[Id(a)], ActionToDo{
-		Path: path,
-		Ld:   ld,
-	})
 }
 
 func (gce *GitChangeExec) addActionByLineDiff(path string, ld LineDiff) {
