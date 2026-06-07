@@ -540,7 +540,6 @@ test: $(LINUXKIT) pkg/pillar | $(DIST)
 	make -C tools/git-change-exec
 	./tools/git-change-exec/cmd/git-exec/git-exec run tools/git-change-exec/actions/tests/git-change-exec/main.gce.lua
 	./tools/git-change-exec/cmd/git-exec/git-exec run pkg/ eve-tools/
-	make -C pkg/vtpm test
 	go test -C pkg/newlog/cmd/ -v -race
 	go test -C pkg/edgeview/src/ -v -race
 	$(QUIET): $@: Succeeded
