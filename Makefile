@@ -539,9 +539,7 @@ test: $(LINUXKIT) pkg/pillar | $(DIST)
 	cp pkg/pillar/results.xml $(DIST)/
 	make -C tools/git-change-exec
 	./tools/git-change-exec/cmd/git-exec/git-exec run tools/git-change-exec/actions/tests/git-change-exec/main.gce.lua
-	make -C pkg/alpine/dnstest test
-	./tools/git-change-exec/cmd/git-exec/git-exec run tools/git-change-exec/actions/tests/bpftrace-compiler/main.gce.lua
-	make -C pkg/debug test
+	./tools/git-change-exec/cmd/git-exec/git-exec run pkg/ eve-tools/
 	make -C pkg/vtpm test
 	go test -C pkg/newlog/cmd/ -v -race
 	go test -C pkg/edgeview/src/ -v -race

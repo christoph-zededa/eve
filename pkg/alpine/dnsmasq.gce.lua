@@ -1,5 +1,5 @@
 function isDnsmasq(path)
-	pattern = "^/?pkg/dnsmasq/.*$"
+	pattern = "^/?pkg/alpine/.*$"
 	return path:find(pattern) ~= nil
 end
 
@@ -15,6 +15,6 @@ function match(lf, ld)
 end
 
 function exec()
-	ok, _, _ = os.execute("make -C pkg/dnsmasq test")
+	ok, _, _ = os.execute("make -C pkg/alpine/dnstest test")
 	return ok
 end
