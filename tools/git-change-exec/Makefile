@@ -3,7 +3,7 @@
 
 .PHONY: clean test all
 
-all: pkg/actionToDos_easyjson.go cmd/git-exec/git-exec cmd/gc/gc cmd/ge/ge
+all: cmd/git-exec/git-exec cmd/gc/gc cmd/ge/ge
 
 cmd/git-exec/git-exec: pkg/*.go cmd/git-exec/*.go
 	go build -C cmd/git-exec/ -race
