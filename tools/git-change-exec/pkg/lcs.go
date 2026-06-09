@@ -92,7 +92,6 @@ func (l *lcsMemo) lcs(from, to []string, count int) int {
 		to:   to,
 	}
 	val, found := l.memo.get(li)
-	memoRet := val + count
 	if found {
 		return val + count
 	}
@@ -110,11 +109,6 @@ func (l *lcsMemo) lcs(from, to []string, count int) int {
 		l.memo.add(li, ret-count)
 	}
 
-	if found {
-		if memoRet != (val + count) {
-			panic("memo wrong")
-		}
-	}
 	return ret
 }
 

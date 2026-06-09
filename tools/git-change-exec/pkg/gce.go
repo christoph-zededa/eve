@@ -4,6 +4,7 @@
 package pkg
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -65,16 +66,12 @@ func (ld LineDiff) String() string {
 }
 
 func (ld LineDiff) startCol() int {
-	var i int
-	var r rune
-
-	for i, r = range []rune(ld.Line) {
+	for i, r := range []rune(ld.Line) {
 		if !unicode.IsSpace(r) {
-			break
+			return i
 		}
 	}
-
-	return i
+	return len([]rune(ld.Line))
 }
 
 // CommentType classifies whether a line is a comment.
@@ -279,9 +276,6 @@ func (di *diffInfo) print() {
 		return a.idx - b.idx
 	})
 	for _, file := range files {
-		// if file.idx == 0 && file.file == "" {
-		// 	panic("foo")
-		// }
 		if strings.Contains(file.file, " => ") {
 			panic("what's this???")
 		}
@@ -596,15 +590,16 @@ func (gce *GitChangeExec) addActionByPath(path string) {
 
 // ForceRunActionDos runs all actions unconditionally.
 func (gce *GitChangeExec) ForceRunActionDos() {
-	var err error
+	var allErr error
 	for _, a := range gce.ActionsToCheck {
-		err = a.Do(nil)
+		err := a.Do(nil)
 		if err != nil {
 			log.Printf("%s failed with: %v", ID(a), err)
 		}
+		allErr = errors.Join(allErr, err)
 	}
 
-	if err != nil {
+	if allErr != nil {
 		os.Exit(1)
 	}
 }
@@ -690,6 +685,7 @@ func InternalActions() map[string]Action {
 
 	return internalActions
 }
+
 // LoadActions loads actions from the given argument list (Lua files or built-in IDs).
 func (gce *GitChangeExec) LoadActions(args []string) {
 
