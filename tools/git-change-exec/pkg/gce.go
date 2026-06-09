@@ -426,35 +426,25 @@ func (gce *GitChangeExec) CollectActionsGitTree() {
 		log.Fatalf("getting log for iteration failed: %v", err)
 	}
 
-	eg := errgroup.Group{}
-	eg.SetLimit(runtime.NumCPU())
-	storeMutex := sync.Mutex{}
-
 	err = logIter.ForEach(func(c *object.Commit) error {
 		if c.Hash == gce.baseCommit.Hash {
 			return storer.ErrStop
 		}
 
-		eg.Go(func() error {
-			commitStats, err := c.Stats()
-			if err != nil {
-				log.Fatalf("getting commit stats failed: %v", err)
-			}
+		commitStats, err := c.Stats()
+		if err != nil {
+			log.Fatalf("getting commit stats failed: %v", err)
+		}
 
-			storeMutex.Lock()
-			for _, st := range commitStats {
-				gce.storePath(st.Name)
-			}
-			storeMutex.Unlock()
+		for _, st := range commitStats {
+			gce.storePath(st.Name)
+		}
 
-			return nil
-		})
 		return nil
 	})
 	if err != nil {
 		log.Fatalf("iterating over commits failed: %v", err)
 	}
-	eg.Wait()
 	logIter.Close()
 }
 
