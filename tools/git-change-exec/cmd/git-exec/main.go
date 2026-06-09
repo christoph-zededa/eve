@@ -162,6 +162,6 @@ func main() {
 	rootCmd.AddCommand(&runCmd, &parseCmd, &baseCommitCmd, &luaCmd, &listCmd, &listBranchesCmd)
 	err := rootCmd.Execute()
 	if err != nil {
-		log.Fatalf("corba failed with: %v", err)
+		log.Fatalf("cobra failed with: %v", err)
 	}
 }

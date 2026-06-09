@@ -77,6 +77,6 @@ func main() {
 
 	err := runCmd.Execute()
 	if err != nil {
-		log.Fatalf("corba failed with: %v", err)
+		log.Fatalf("cobra failed with: %v", err)
 	}
 }
