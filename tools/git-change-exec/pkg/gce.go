@@ -78,18 +78,16 @@ func (ld LineDiff) startCol() int {
 type CommentType uint8
 
 func (c CommentType) String() string {
-	if c == Undecided {
+	switch c {
+	case Undecided:
 		return "undecided"
-	}
-	if c == NotComment {
+	case NotComment:
 		return "not a comment"
-	}
-	if c == IsComment {
+	case IsComment:
 		return "comment"
-	} else {
-		panic("what?")
+	default:
+		return fmt.Sprintf("unknown(%d)", c)
 	}
-
 }
 
 // CommentType constants.
@@ -276,9 +274,6 @@ func (di *diffInfo) print() {
 		return a.idx - b.idx
 	})
 	for _, file := range files {
-		if strings.Contains(file.file, " => ") {
-			panic("what's this???")
-		}
 		dur := time.Since(file.t)
 		log.Printf("\t%d %s (%d -> %d) - %s", file.idx, file.file, file.fromCount, file.toCount, dur)
 	}
@@ -589,7 +584,7 @@ func (gce *GitChangeExec) addActionByPath(path string) {
 }
 
 // ForceRunActionDos runs all actions unconditionally.
-func (gce *GitChangeExec) ForceRunActionDos() {
+func (gce *GitChangeExec) ForceRunActionDos() error {
 	var allErr error
 	for _, a := range gce.ActionsToCheck {
 		err := a.Do(nil)
@@ -599,9 +594,7 @@ func (gce *GitChangeExec) ForceRunActionDos() {
 		allErr = errors.Join(allErr, err)
 	}
 
-	if allErr != nil {
-		os.Exit(1)
-	}
+	return allErr
 }
 
 // DryRunActionDos logs which actions would run without executing them.
@@ -616,26 +609,23 @@ func (gce *GitChangeExec) DryRunActionDos() {
 }
 
 // RunActionDos executes actions that have matching todos.
-func (gce *GitChangeExec) RunActionDos() {
-	failed := false
+func (gce *GitChangeExec) RunActionDos() error {
+	var allErr error
 	for _, a := range gce.ActionsToCheck {
 		actionToDos, found := gce.ActionDos.Actions[ID(a)]
 		if !found {
 			continue
 		}
-		var err error
 		log.Printf("--- running %s ...", ID(a))
-		err = a.Do(actionToDos)
+		err := a.Do(actionToDos)
 		log.Printf("--- running %s done", ID(a))
 		if err != nil {
 			log.Printf("%s failed with: %v", ID(a), err)
-			failed = true
 		}
+		allErr = errors.Join(allErr, err)
 	}
 
-	if failed {
-		os.Exit(1)
-	}
+	return allErr
 }
 
 // CollectDirtyGitTree collects changed file paths from the dirty worktree.

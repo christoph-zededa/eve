@@ -64,7 +64,9 @@ func main() {
 
 			log.Printf("Running ...")
 			if forceRun {
-				gce.ForceRunActionDos()
+				if err := gce.ForceRunActionDos(); err != nil {
+					os.Exit(1)
+				}
 				return
 			}
 
@@ -80,7 +82,9 @@ func main() {
 				return
 			}
 
-			gce.RunActionDos()
+			if err := gce.RunActionDos(); err != nil {
+				os.Exit(1)
+			}
 		},
 	}
 	parseCmd := cobra.Command{

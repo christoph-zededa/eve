@@ -144,13 +144,11 @@ func (s *LintSpdx) hasSpdx(path string) bool {
 		return true
 	}
 
-	exitErr, ok := err.(*exec.ExitError)
-
-	if ok {
+	if _, ok := err.(*exec.ExitError); ok {
 		return strings.Contains(string(bs), spdxLicenseIdentifier+" OK")
 	}
 
-	log.Fatalf("running '%s' '%s' failed: %v", scriptPath, path, exitErr)
+	log.Fatalf("running '%s' '%s' failed: %v", scriptPath, path, err)
 
 	return false
 

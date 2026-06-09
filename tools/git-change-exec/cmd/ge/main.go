@@ -51,26 +51,24 @@ func main() {
 			defer gce.Close()
 
 			gce.GoToGitRootDir()
+			gce.ActionDos = actionToDos
 
 			log.Printf("Running ...")
 			if forceRun {
-				gce.ForceRunActionDos()
+				if err := gce.ForceRunActionDos(); err != nil {
+					os.Exit(1)
+				}
 				return
 			}
 
-			gce.FetchOrigin()
-
-			gce.CalculateBaseCommit()
-			gce.CollectActionsGitTree()
-			gce.CollectDirtyGitTree()
-
-			gce.ActionDos = actionToDos
 			if dryRun {
 				gce.DryRunActionDos()
 				return
 			}
 
-			gce.RunActionDos()
+			if err := gce.RunActionDos(); err != nil {
+				os.Exit(1)
+			}
 		},
 	}
 

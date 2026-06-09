@@ -6,13 +6,13 @@
 all: pkg/actionToDos_easyjson.go cmd/git-exec/git-exec cmd/gc/gc cmd/ge/ge
 
 cmd/git-exec/git-exec: pkg/*.go cmd/git-exec/*.go
-	go build -C cmd/git-exec/
+	go build -C cmd/git-exec/ -race
 
 cmd/gc/gc: pkg/*.go cmd/gc/*.go
-	go build -C cmd/gc/
+	go build -C cmd/gc/ -race
 
 cmd/ge/ge: pkg/*.go cmd/ge/*.go
-	go build -C cmd/ge/
+	go build -C cmd/ge/ -race
 
 
 clean:
