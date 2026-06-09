@@ -9,24 +9,33 @@ import (
 
 type opActionLine uint8
 
+// ActionPath is implemented by actions that match on file paths.
 type ActionPath interface {
 	MatchPath(path string) bool
 }
+
+// ActionDiff is implemented by actions that match on line-level diffs.
 type ActionDiff interface {
 	MatchDiff(path string, ld LineDiff) bool
 }
+
+// Action is the interface for executable actions.
 type Action interface {
 	Do(actionToDos []ActionToDo) error
 	Close()
 }
-type Ider interface {
-	Id() string
+
+// IDer is implemented by actions that provide a custom identifier.
+type IDer interface {
+	ID() string
 }
 
-func Id(i any) string {
-	ider, ok := i.(Ider)
+// ID returns the identifier for an action, using IDer if available,
+// otherwise falling back to the type name.
+func ID(i any) string {
+	ider, ok := i.(IDer)
 	if ok {
-		return ider.Id()
+		return ider.ID()
 	}
 	ty := reflect.TypeOf(i)
 	if ty.Name() == "" {

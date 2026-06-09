@@ -146,6 +146,7 @@ func (l *lcsMemo) makeLineDiffs(from, to []string) {
 	}
 }
 
+// Diff computes line-level diffs between two string slices using LCS.
 func Diff(from, to []string) []LineDiff {
 	lm := newLcsMemo()
 

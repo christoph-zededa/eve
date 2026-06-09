@@ -15,12 +15,14 @@ import (
 	luar "layeh.com/gopher-luar"
 )
 
+// LuaAction wraps a Lua script as an action.
 type LuaAction struct {
 	id         string
 	script     string
 	matchState *lua.LState
 }
 
+// LuaLoad creates a LuaAction from a name and script source.
 func LuaLoad(name string, script string) *LuaAction {
 	la := LuaAction{
 		script: script,
@@ -31,7 +33,8 @@ func LuaLoad(name string, script string) *LuaAction {
 	return &la
 }
 
-func (la *LuaAction) Id() string {
+// ID returns the action identifier.
+func (la *LuaAction) ID() string {
 	return la.id
 }
 
@@ -140,10 +143,12 @@ func (la *LuaAction) luaLoadBaseFunctions(state *lua.LState) {
 	lua.OpenMath(state)
 }
 
+// Do executes the Lua action's exec function with the given action items.
 func (la *LuaAction) Do(actionToDos []ActionToDo) error {
 	return la.do(actionToDos)
 }
 
+// Close releases the Lua state.
 func (la *LuaAction) Close() {
 	if la.matchState != nil {
 		la.matchState.Close()
@@ -155,6 +160,7 @@ func (la *LuaAction) MatchDiff(path string, ld LineDiff) bool {
 	return la.match(path, ld)
 }
 
+// ListLuaActions recursively finds all .gce.lua files under the given path.
 func ListLuaActions(path string) []string {
 	actionLuaFiles := make([]string, 0)
 	filepath.WalkDir(path, func(path string, d fs.DirEntry, err error) error {

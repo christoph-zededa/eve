@@ -5,10 +5,10 @@ package pkg
 
 import "testing"
 
-func TestId(t *testing.T) {
+func TestID(t *testing.T) {
 	p := LintSpdx{}
 
-	id := Id(p)
+	id := ID(p)
 	if id != "LintSpdx" {
 		t.Fatalf("wrong id: %s\n", id)
 	}

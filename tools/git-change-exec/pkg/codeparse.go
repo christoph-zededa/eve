@@ -20,6 +20,7 @@ import (
 	"github.com/smacker/go-tree-sitter/yaml"
 )
 
+// LineProperty maps property names to their column ranges for a source line.
 type LineProperty map[string][]struct {
 	ColFrom uint32
 	ColTo   uint32
@@ -35,9 +36,11 @@ func (lp LineProperty) String() string {
 	return ret
 }
 
-type lineProperties map[uint32]LineProperty
+// LineProperties maps line numbers to their properties.
+type LineProperties map[uint32]LineProperty
 
-func Parse(path string, content string) lineProperties {
+// Parse returns line properties (e.g. comment ranges) for the given source file.
+func Parse(path string, content string) LineProperties {
 	var lang *sitter.Language
 
 	ext := filepath.Ext(path)
@@ -75,7 +78,7 @@ func Parse(path string, content string) lineProperties {
 
 type parser struct {
 	sourceCode []byte
-	types      lineProperties
+	types      LineProperties
 }
 
 func (p *parser) setType(line uint32, colFrom, colTo uint32, ty string) {
@@ -98,10 +101,10 @@ func (p *parser) setType(line uint32, colFrom, colTo uint32, ty string) {
 	})
 }
 
-func parseWithLang(lang *sitter.Language, sourceCode []byte) lineProperties {
+func parseWithLang(lang *sitter.Language, sourceCode []byte) LineProperties {
 	p := parser{
 		sourceCode: sourceCode,
-		types:      lineProperties{},
+		types:      LineProperties{},
 	}
 	parser := sitter.NewParser()
 	parser.SetLanguage(lang)

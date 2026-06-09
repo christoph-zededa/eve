@@ -28,8 +28,10 @@ import (
 	"github.com/go-git/go-git/v5/storage/memory"
 )
 
+// LineOp represents a diff line operation (add, delete, or no-op).
 type LineOp uint8
 
+// Line operation constants.
 const (
 	LineAdd LineOp = iota
 	LineDel
@@ -50,6 +52,7 @@ func (o LineOp) String() string {
 	return " "
 }
 
+// LineDiff represents a single line-level diff entry.
 type LineDiff struct {
 	Operation  LineOp
 	Line       string
@@ -74,6 +77,7 @@ func (ld LineDiff) startCol() int {
 	return i
 }
 
+// CommentType classifies whether a line is a comment.
 type CommentType uint8
 
 func (c CommentType) String() string {
@@ -91,6 +95,7 @@ func (c CommentType) String() string {
 
 }
 
+// CommentType constants.
 const (
 	Undecided CommentType = iota
 	NotComment
@@ -102,6 +107,7 @@ func (ld LineDiff) IsCommentString() string {
 	return ld.IsComment().String()
 }
 
+// IsComment determines whether this line is a comment.
 func (ld LineDiff) IsComment() CommentType {
 	// did not parse, so we don't know
 	if len(ld.TypeOfLine) == 0 {
@@ -122,6 +128,7 @@ func (ld LineDiff) IsComment() CommentType {
 	return Undecided
 }
 
+// GitChangeExec orchestrates git-based change detection and action execution.
 type GitChangeExec struct {
 	ActionsToCheck []Action
 	ActionDos      ActionToDos
@@ -135,6 +142,7 @@ type GitChangeExec struct {
 	diffMutex sync.Mutex
 }
 
+// CountRelPaths returns the number of tracked relative paths.
 func (gce *GitChangeExec) CountRelPaths() int {
 	return len(gce.relPaths)
 }
@@ -145,6 +153,7 @@ func debugLog(fmt string, args ...any) {
 	}
 }
 
+// NewGitChangeExec creates a new GitChangeExec instance.
 func NewGitChangeExec() *GitChangeExec {
 	gce := GitChangeExec{
 		ActionDos: ActionToDos{
@@ -157,6 +166,7 @@ func NewGitChangeExec() *GitChangeExec {
 	return &gce
 }
 
+// GoToGitRootDir changes the working directory to the git repository root.
 func (gce *GitChangeExec) GoToGitRootDir() {
 	var err error
 
@@ -177,6 +187,7 @@ func (gce *GitChangeExec) GoToGitRootDir() {
 	}
 }
 
+// Close restores the working directory and closes all actions.
 func (gce *GitChangeExec) Close() {
 	gce.ChangeBackDir()
 
@@ -185,6 +196,7 @@ func (gce *GitChangeExec) Close() {
 	}
 }
 
+// ChangeBackDir restores the working directory to the original path.
 func (gce *GitChangeExec) ChangeBackDir() {
 	if gce.originPath == "" {
 		return
@@ -196,6 +208,7 @@ func (gce *GitChangeExec) ChangeBackDir() {
 	}
 }
 
+// FetchOrigin fetches from the origin remote.
 func (gce *GitChangeExec) FetchOrigin() {
 	err := gce.G.Fetch(&git.FetchOptions{
 		RemoteName: "origin",
@@ -292,6 +305,7 @@ func (di *diffInfo) done() {
 	di.doneState.Store(true)
 }
 
+// Diff computes line-level diffs for all tracked paths.
 func (gce *GitChangeExec) Diff() {
 	eg := errgroup.Group{}
 	eg.SetLimit(runtime.NumCPU())
@@ -374,6 +388,7 @@ func (gce *GitChangeExec) diffPath(path string) {
 
 }
 
+// CalculateBaseCommit finds the common ancestor commit with the base branch.
 func (gce *GitChangeExec) CalculateBaseCommit() {
 	logIter, err := gce.G.Log(&git.LogOptions{})
 	if err != nil {
@@ -410,10 +425,12 @@ func (gce *GitChangeExec) CalculateBaseCommit() {
 	gce.baseCommit = baseCommit
 }
 
+// BaseCommit returns the calculated base commit.
 func (gce *GitChangeExec) BaseCommit() *object.Commit {
 	return gce.baseCommit
 }
 
+// CollectActionsGitTree collects changed file paths from the git commit history.
 func (gce *GitChangeExec) CollectActionsGitTree() {
 	logIter, err := gce.G.Log(&git.LogOptions{})
 	if err != nil {
@@ -472,6 +489,7 @@ func (gce *GitChangeExec) findCommonBase(branchHead *object.Commit) []*object.Co
 	return commonBase
 }
 
+// BaseBranches returns all base branch names including stable branches.
 func (gce *GitChangeExec) BaseBranches() []string {
 	baseBranches := map[string]struct{}{}
 
@@ -550,6 +568,7 @@ func (gce *GitChangeExec) storePath(path string) {
 	gce.relPaths[path] = struct{}{}
 }
 
+// DumpActionToDos writes the action todos as JSON to the writer.
 func (gce *GitChangeExec) DumpActionToDos(w io.Writer) {
 	gce.ActionDos.dumpActionToDos(w)
 }
@@ -575,12 +594,13 @@ func (gce *GitChangeExec) addActionByPath(path string) {
 	}
 }
 
+// ForceRunActionDos runs all actions unconditionally.
 func (gce *GitChangeExec) ForceRunActionDos() {
 	var err error
 	for _, a := range gce.ActionsToCheck {
 		err = a.Do(nil)
 		if err != nil {
-			log.Printf("%s failed with: %v", Id(a), err)
+			log.Printf("%s failed with: %v", ID(a), err)
 		}
 	}
 
@@ -589,29 +609,31 @@ func (gce *GitChangeExec) ForceRunActionDos() {
 	}
 }
 
+// DryRunActionDos logs which actions would run without executing them.
 func (gce *GitChangeExec) DryRunActionDos() {
 	for _, a := range gce.ActionsToCheck {
-		_, found := gce.ActionDos.Actions[Id(a)]
+		_, found := gce.ActionDos.Actions[ID(a)]
 		if !found {
 			continue
 		}
-		log.Printf("would run %s, but running dry ...", Id(a))
+		log.Printf("would run %s, but running dry ...", ID(a))
 	}
 }
 
+// RunActionDos executes actions that have matching todos.
 func (gce *GitChangeExec) RunActionDos() {
 	failed := false
 	for _, a := range gce.ActionsToCheck {
-		actionToDos, found := gce.ActionDos.Actions[Id(a)]
+		actionToDos, found := gce.ActionDos.Actions[ID(a)]
 		if !found {
 			continue
 		}
 		var err error
-		log.Printf("--- running %s ...", Id(a))
+		log.Printf("--- running %s ...", ID(a))
 		err = a.Do(actionToDos)
-		log.Printf("--- running %s done", Id(a))
+		log.Printf("--- running %s done", ID(a))
 		if err != nil {
-			log.Printf("%s failed with: %v", Id(a), err)
+			log.Printf("%s failed with: %v", ID(a), err)
 			failed = true
 		}
 	}
@@ -621,6 +643,7 @@ func (gce *GitChangeExec) RunActionDos() {
 	}
 }
 
+// CollectDirtyGitTree collects changed file paths from the dirty worktree.
 func (gce *GitChangeExec) CollectDirtyGitTree() {
 	ignoredStatusCodes := map[git.StatusCode]struct{}{
 		git.Unmodified: {},
@@ -658,14 +681,16 @@ func (gce *GitChangeExec) CollectDirtyGitTree() {
 	}
 }
 
+// InternalActions returns built-in actions keyed by their ID.
 func InternalActions() map[string]Action {
 	lintSpdx := &LintSpdx{}
 	internalActions := map[string]Action{
-		lintSpdx.Id(): lintSpdx,
+		lintSpdx.ID(): lintSpdx,
 	}
 
 	return internalActions
 }
+// LoadActions loads actions from the given argument list (Lua files or built-in IDs).
 func (gce *GitChangeExec) LoadActions(args []string) {
 
 	luaFiles := make([]string, 0)

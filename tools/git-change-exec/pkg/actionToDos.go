@@ -10,11 +10,15 @@ import (
 	"log"
 )
 
+// ActionToDos holds action items grouped by action ID.
+//
 //easyjson:json
 type ActionToDos struct {
 	Actions map[string][]ActionToDo
 }
 
+// ActionToDo represents a single action item with a path and optional diff.
+//
 //easyjson:json
 type ActionToDo struct {
 	Path string
@@ -31,10 +35,10 @@ func (atd *ActionToDos) dumpActionToDos(w io.Writer) {
 }
 
 func (atd *ActionToDos) addActionToDo(a Action, path string, ld *LineDiff) {
-	if atd.Actions[Id(a)] == nil {
-		atd.Actions[Id(a)] = make([]ActionToDo, 0)
+	if atd.Actions[ID(a)] == nil {
+		atd.Actions[ID(a)] = make([]ActionToDo, 0)
 	}
-	atd.Actions[Id(a)] = append(atd.Actions[Id(a)], ActionToDo{
+	atd.Actions[ID(a)] = append(atd.Actions[ID(a)], ActionToDo{
 		Path: path,
 		Ld:   ld,
 	})

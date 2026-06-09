@@ -19,6 +19,7 @@ import (
 // trick to not confuse spdx check shellscript
 const spdxLicenseIdentifier = "SPDX-" + "License-Identifier:"
 
+// LintSpdx checks and fixes missing SPDX license headers.
 type LintSpdx struct {
 	extsMap      map[string]func(path string)
 	organization string
@@ -155,6 +156,7 @@ func (s *LintSpdx) hasSpdx(path string) bool {
 
 }
 
+// MatchPath returns true if the file at path needs an SPDX header.
 func (s *LintSpdx) MatchPath(path string) bool {
 	if s.extsMap == nil {
 		s.init()
@@ -174,10 +176,12 @@ func (s *LintSpdx) MatchPath(path string) bool {
 	return false
 }
 
-func (s *LintSpdx) Id() string {
+// ID returns the action identifier.
+func (s *LintSpdx) ID() string {
 	return "gce:lint-spdx"
 }
 
+// Do fixes SPDX headers for the given action items.
 func (s *LintSpdx) Do(actionToDos []ActionToDo) error {
 	if s.extsMap == nil {
 		s.init()
@@ -199,6 +203,7 @@ func (s *LintSpdx) Do(actionToDos []ActionToDo) error {
 	return nil
 }
 
+// Close is a no-op for LintSpdx.
 func (s *LintSpdx) Close() {
 }
 
