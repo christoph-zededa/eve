@@ -78,6 +78,11 @@ type pciDevice struct {
 	// is enabled.
 	netIntfOrder uint32
 
+	// ordered is set by convertToInterfaceOrder (the legacy path) to make allocate
+	// place this device by netIntfOrder rather than by type. It is false in the
+	// enforced path.
+	ordered bool
+
 	ioBundle types.IoBundle
 
 	// pciBridgeID and pciDeviceID are set by pciAddressAllocator.

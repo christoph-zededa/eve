@@ -1022,14 +1022,89 @@ type pciAddressAllocator struct {
 	enforceNetInterfaceOrder bool
 }
 
+type availOrders struct {
+	ordersTaken  map[uint32]struct{}
+	currentOrder uint32
+}
+
+func newAvailOrders() availOrders {
+	return availOrders{
+		ordersTaken:  map[uint32]struct{}{},
+		currentOrder: 0,
+	}
+}
+
+func (ao *availOrders) reserveOrder(o uint32) {
+	ao.ordersTaken[o] = struct{}{}
+}
+
+func (ao *availOrders) nextOrder() uint32 {
+	for {
+		ao.currentOrder++
+
+		_, found := ao.ordersTaken[ao.currentOrder]
+		if !found {
+			return ao.currentOrder
+		}
+	}
+}
+
+// convertToInterfaceOrder rewrites a legacy (non-enforced) configuration into the
+// equivalent explicit interface ordering, so that allocate lays it out exactly like
+// the previous legacy (slice-order) allocator did. This lets a device keep its PCI
+// IDs when allocate takes over the legacy case.
+//
+// It gives every virtual network and every PCI device a position-derived order
+// (functions of a multifunction device kept consecutive) and marks each PCI device
+// "ordered", so allocate places them all by netIntfOrder instead of relegating
+// non-network devices to the end.
+func (a *pciAddressAllocator) convertToInterfaceOrder() error {
+	order := newAvailOrders()
+	for i := range a.virtualNetworks {
+		a.virtualNetworks[i].VifOrder = order
+		order++
+	}
+	// Assign consecutive orders to the functions of each multifunction device,
+	// keeping the order in which the groups (and the functions within them) first
+	// appear in the assignment list.
+	groupAssigned := make(map[string]bool)
+	for i := range a.pciAssignments {
+		pciLongWoFunc, err := a.pciAssignments[i].pciLongWOFunction()
+		if err != nil {
+			logrus.Warnf("retrieving pci address without function failed: %v", err)
+			continue
+		}
+		if groupAssigned[pciLongWoFunc] {
+			continue
+		}
+		groupAssigned[pciLongWoFunc] = true
+		for j := range a.pciAssignments {
+			otherWoFunc, err := a.pciAssignments[j].pciLongWOFunction()
+			if err != nil || otherWoFunc != pciLongWoFunc {
+				continue
+			}
+			a.pciAssignments[j].netIntfOrder = order
+			// Mark the device "ordered" so allocate sorts it by the order assigned
+			// above instead of relegating non-network devices to the end. This is
+			// purely a placement hint: it does not change the device's Type or its
+			// IsNet() classification, and it reproduces the legacy slice-order layout
+			// where non-network devices keep their position.
+			a.pciAssignments[j].ordered = true
+			// if !a.pciAssignments[j].ioBundle.Type.IsNet() {
+			// 	a.pciAssignments[j].ioBundle.Type = types.IoNetEth
+			// }
+			order++
+		}
+	}
+	return nil
+}
+
 // allocate sets pciDeviceID and pciBridgeID for every pciDevice and virtualNetwork
 // based on user-configured ordering requirements.
 func (a *pciAddressAllocator) allocate() error {
 	if !a.enforceNetInterfaceOrder {
-		// Fallback to legacy ordering of PCI devices.
-		return a.allocateLegacy()
+		a.convertToInterfaceOrder()
 	}
-
 	// Determine PCI addresses for virtual network interfaces, which are connected
 	// to the root bus using root ports.
 	for i := range a.virtualNetworks {
@@ -1135,9 +1210,9 @@ func (a *pciAddressAllocator) allocate() error {
 			// Skip PCI address 0 which is unsupported for standard hotplug controller.
 			pciDeviceID := 1
 			devIndex := md.index(a.pciAssignments[i])
-			thisIsNetDev := a.pciAssignments[i].ioBundle.Type.IsNet()
+			thisIsNetDev := a.pciAssignments[i].ioBundle.Type.IsNet() || a.pciAssignments[i].ordered
 			for dev2Index, dev2 := range md.devs {
-				theOtherIsNetDev := dev2.ioBundle.Type.IsNet()
+				theOtherIsNetDev := dev2.ioBundle.Type.IsNet() || dev2.ordered
 				if !thisIsNetDev {
 					if theOtherIsNetDev {
 						// Network functions take priority in the order.
@@ -1170,53 +1245,6 @@ func (a *pciAddressAllocator) allocate() error {
 	return nil
 }
 
-func (a *pciAddressAllocator) allocateLegacy() error {
-	// Virtual network interfaces precede PCI-passthrough devices in the PCI topology.
-	// Among virtual interfaces, the order received from zedagent is preserved.
-	pciDeviceID := a.firstFreePCIID
-	for i := range a.virtualNetworks {
-		a.virtualNetworks[i].pciDeviceID = pciDeviceID
-		pciDeviceID++
-	}
-
-	// Preserve order of PCI assignments as received from zedagent, but group
-	// functions of the same multifunction PCI device under the same bridge.
-	pciBridgeIDs := make(map[string]int) // key = PCI address without function suffix
-	for i := range a.pciAssignments {
-		pciLongWoFunc, err := a.pciAssignments[i].pciLongWOFunction()
-		if err != nil {
-			logrus.Warnf("retrieving pci address without function failed: %v", err)
-			continue
-		}
-		md := a.multifunctionDevices[pciLongWoFunc]
-		if md == nil {
-			// Even when device is not multifunction, it still should have entry
-			// in the a.multifunctionDevices map.
-			logrus.Warnf("missing multifunctionDevices entry for pci address: %s",
-				pciLongWoFunc)
-			continue
-		}
-		if len(md.devs) > 1 {
-			// Multi-function PCI device.
-			pciBridgeID, bridgeIDAllocated := pciBridgeIDs[pciLongWoFunc]
-			if !bridgeIDAllocated {
-				pciBridgeID = pciDeviceID
-				pciBridgeIDs[pciLongWoFunc] = pciBridgeID
-				pciDeviceID++
-			}
-			a.pciAssignments[i].pciBridgeID = pciBridgeID
-			// Skip PCI address 0 which is unsupported for standard hotplug controller.
-			a.pciAssignments[i].pciDeviceID = md.index(a.pciAssignments[i]) + 1
-		} else {
-			// Not multifunction PCI device.
-			a.pciAssignments[i].pciBridgeID = 0
-			a.pciAssignments[i].pciDeviceID = pciDeviceID
-			pciDeviceID++
-		}
-	}
-	return nil
-}
-
 type pciDevicesWithBridge struct {
 	bridgeBus string
 	devs      []*pciDevice
@@ -1240,11 +1268,11 @@ func (pd pciDevicesWithBridge) index(p pciDevice) int {
 func (pd pciDevicesWithBridge) compareOrder(
 	pd2 pciDevicesWithBridge) (isBefore, isAfter bool) {
 	for _, dev := range pd.devs {
-		if !dev.ioBundle.Type.IsNet() {
+		if !dev.ioBundle.Type.IsNet() && !dev.ordered {
 			continue
 		}
 		for _, dev2 := range pd2.devs {
-			if !dev2.ioBundle.Type.IsNet() {
+			if !dev2.ioBundle.Type.IsNet() && !dev2.ordered {
 				continue
 			}
 			if dev.netIntfOrder < dev2.netIntfOrder {
@@ -1283,7 +1311,7 @@ func (pd pciDevicesWithBridge) compareOrderWithVirtNet(
 // Return true if device has at least one network function.
 func (pd pciDevicesWithBridge) hasNetworkFunction() bool {
 	for _, dev := range pd.devs {
-		if dev.ioBundle.Type.IsNet() {
+		if dev.ioBundle.Type.IsNet() || dev.ordered {
 			return true
 		}
 	}

@@ -2,6 +2,7 @@ package hypervisor
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"net"
 	"os"
@@ -15,6 +16,7 @@ import (
 	"github.com/lf-edge/eve/pkg/pillar/types"
 	. "github.com/onsi/gomega"
 	uuid "github.com/satori/go.uuid"
+	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -2980,63 +2982,71 @@ func TestConvertToMultifunctionPCIDevices(t *testing.T) {
 
 func TestPCIAddressAllocator(t *testing.T) {
 	g := NewGomegaWithT(t)
-	virtualNetworks := []virtualNetwork{
-		{
-			VifConfig: types.VifConfig{
-				Bridge:   "br1",
-				Vif:      "nbu1x1",
-				Mac:      net.HardwareAddr{0x02, 0x16, 0x3e, 0x00, 0x00, 0x01},
-				MTU:      1500,
-				VifOrder: 1,
+	virtualNetworksFunc := func() []virtualNetwork {
+		return []virtualNetwork{
+			{
+				VifConfig: types.VifConfig{
+					Bridge:   "br1",
+					Vif:      "nbu1x1",
+					Mac:      net.HardwareAddr{0x02, 0x16, 0x3e, 0x00, 0x00, 0x01},
+					MTU:      1500,
+					VifOrder: 1,
+				},
+				networkID: 0,
 			},
-			networkID: 0,
-		},
-		{
-			VifConfig: types.VifConfig{
-				Bridge:   "br2",
-				Vif:      "nbu2x1",
-				Mac:      net.HardwareAddr{0x02, 0x16, 0x3e, 0x00, 0x00, 0x02},
-				MTU:      1500,
-				VifOrder: 4,
+			{
+				VifConfig: types.VifConfig{
+					Bridge:   "br2",
+					Vif:      "nbu2x1",
+					Mac:      net.HardwareAddr{0x02, 0x16, 0x3e, 0x00, 0x00, 0x02},
+					MTU:      1500,
+					VifOrder: 4,
+				},
+				networkID: 1,
 			},
-			networkID: 1,
-		},
+		}
 	}
-	pciAssignments := []pciDevice{
-		{
-			ioBundle: types.IoBundle{
-				PciLong: "0000:06:00.0",
-				Type:    types.IoNetEth,
+
+	virtualNetworks := virtualNetworksFunc()
+
+	pciAssignmentsFunc := func() []pciDevice {
+		return []pciDevice{
+			{
+				ioBundle: types.IoBundle{
+					PciLong: "0000:06:00.0",
+					Type:    types.IoNetEth,
+				},
+				netIntfOrder: 2,
 			},
-			netIntfOrder: 2,
-		},
-		{
-			ioBundle: types.IoBundle{
-				PciLong: "0000:00:15.0",
-				Type:    types.IoUSBController,
+			{
+				ioBundle: types.IoBundle{
+					PciLong: "0000:00:15.0",
+					Type:    types.IoUSBController,
+				},
 			},
-		},
-		{
-			ioBundle: types.IoBundle{
-				PciLong: "0000:06:00.2",
-				Type:    types.IoOther,
+			{
+				ioBundle: types.IoBundle{
+					PciLong: "0000:06:00.2",
+					Type:    types.IoOther,
+				},
 			},
-		},
-		{
-			ioBundle: types.IoBundle{
-				PciLong: "0000:06:00.1",
-				Type:    types.IoNetEth,
+			{
+				ioBundle: types.IoBundle{
+					PciLong: "0000:06:00.1",
+					Type:    types.IoNetEth,
+				},
+				netIntfOrder: 3,
 			},
-			netIntfOrder: 3,
-		},
-		{
-			ioBundle: types.IoBundle{
-				PciLong: "0000:08:00.0",
-				Type:    types.IoNetWWAN,
+			{
+				ioBundle: types.IoBundle{
+					PciLong: "0000:08:00.0",
+					Type:    types.IoNetWWAN,
+				},
+				netIntfOrder: 0,
 			},
-			netIntfOrder: 0,
-		},
+		}
 	}
+	pciAssignments := pciAssignmentsFunc()
 	multifunctionDevices := multifunctionDevGroup(pciAssignments)
 	g.Expect(multifunctionDevices).To(HaveLen(3))
 	addrAllocator := pciAddressAllocator{
@@ -3186,8 +3196,20 @@ func TestPCIAddressAllocator(t *testing.T) {
 `
 	g.Expect(buffer.String()).To(Equal(expectedConfig))
 
-	// Test enforced user-defined network interface order.
-	addrAllocator.enforceNetInterfaceOrder = true
+	virtualNetworks = virtualNetworksFunc()
+	pciAssignments = pciAssignmentsFunc()
+	multifunctionDevices = multifunctionDevGroup(pciAssignments)
+	addrAllocator = pciAddressAllocator{
+		pciAssignments:           pciAssignments,
+		virtualNetworks:          virtualNetworks,
+		multifunctionDevices:     multifunctionDevices,
+		firstFreePCIID:           5,
+		enforceNetInterfaceOrder: true,
+	}
+	paFiller = pciAssignmentsTemplateFiller{
+		multifunctionDevices: multifunctionDevices,
+		file:                 &buffer,
+	}
 	err = addrAllocator.allocate()
 	g.Expect(err).ToNot(HaveOccurred())
 
@@ -3365,4 +3387,336 @@ func TestPCIAddressAllocator(t *testing.T) {
 	fmt.Println(err.Error())
 	g.Expect(err.Error()).To(ContainSubstring("User-defined network interface order " +
 		"disrupts the function sequence of the multifunction PCI devices 0000:06:00 and 0000:08:00"))
+}
+
+type PciDeviceJSON struct {
+	// netIntfOrder is only applied to network devices when EnforceNetworkInterfaceOrder
+	// is enabled.
+	NetIntfOrder uint32
+
+	IoBundle types.IoBundle
+
+	// pciBridgeID and pciDeviceID are set by pciAddressAllocator.
+
+	// PCI bridge is only used for multifunction PCI devices.
+	// In that case pciBridgeID is address of the bridge on the root bus, while
+	// pciDeviceID is device address inside the secondary bus provided by the bridge.
+	// For single-function PCI devices, bridge is unused, pciBridgeID is unset
+	// and pciDeviceID points to device address on the root bus.
+	PciBridgeID int
+	PciDeviceID int
+}
+
+type PCIAddressAllocatorJSON struct {
+	PCIAssignments  []PciDeviceJSON
+	VirtualNetworks []struct {
+		types.VifConfig
+		NetworkID   int
+		PciDeviceID int
+	}
+	MultifunctionDevices map[string]*struct {
+		BridgeBus string
+		Devs      []*PciDeviceJSON
+	}
+	FirstFreePCIID           int
+	EnforceNetInterfaceOrder bool
+}
+
+func (paaj *PCIAddressAllocatorJSON) pciAddressAllocator() pciAddressAllocator {
+	a := pciAddressAllocator{}
+
+	a.enforceNetInterfaceOrder = paaj.EnforceNetInterfaceOrder
+	a.firstFreePCIID = paaj.FirstFreePCIID
+
+	if paaj.PCIAssignments != nil {
+		a.pciAssignments = make([]pciDevice, 0, len(paaj.PCIAssignments))
+		for _, pa := range paaj.PCIAssignments {
+			// Mirror production (addNoDuplicatePCI in Construct...): the same PCI
+			// address is never assigned twice, so sameDevice/index is unambiguous.
+			a.pciAssignments = addNoDuplicatePCI(a.pciAssignments, pciDevice{
+				netIntfOrder: pa.NetIntfOrder,
+				ioBundle:     pa.IoBundle,
+				pciBridgeID:  pa.PciBridgeID,
+				pciDeviceID:  pa.PciDeviceID,
+			})
+		}
+	}
+
+	if paaj.VirtualNetworks != nil {
+		a.virtualNetworks = make([]virtualNetwork, 0, len(paaj.VirtualNetworks))
+		for _, vn := range paaj.VirtualNetworks {
+			a.virtualNetworks = append(a.virtualNetworks, virtualNetwork{
+				VifConfig:   vn.VifConfig,
+				networkID:   vn.NetworkID,
+				pciDeviceID: vn.PciDeviceID,
+			})
+		}
+	}
+
+	// Build the multifunction-device map the way the production code does, so its
+	// entries alias a.pciAssignments (rather than the independent copies the JSON
+	// field would yield). This mirrors runtime behavior - in particular it lets
+	// convertToInterfaceOrder's updates to netIntfOrder show through the map - and
+	// it avoids spurious mismatches from a map that is inconsistent with the
+	// assignments (which cannot happen at runtime). The PCIAssignments field is the
+	// single source of truth; paaj.MultifunctionDevices is intentionally ignored.
+	a.multifunctionDevices = multifunctionDevGroup(a.pciAssignments)
+
+	return a
+}
+
+// fuzzMFDJSON and fuzzVNetJSON are type aliases for the anonymous element types
+// used inside PCIAddressAllocatorJSON. Because they are aliases (not new defined
+// types) they are identical to the field types, so the seed-building helpers
+// below can return values that are directly assignable to those fields.
+type fuzzMFDJSON = struct {
+	BridgeBus string
+	Devs      []*PciDeviceJSON
+}
+
+type fuzzVNetJSON = struct {
+	types.VifConfig
+	NetworkID   int
+	PciDeviceID int
+}
+
+// fuzzPciLongWOFunc returns the PCI long address without the function suffix,
+// reusing the production logic so that seed grouping stays in sync with
+// multifunctionDevGroup.
+func fuzzPciLongWOFunc(pciLong string) string {
+	d := pciDevice{ioBundle: types.IoBundle{PciLong: pciLong}}
+	woFunc, _ := d.pciLongWOFunction()
+	return woFunc
+}
+
+// fuzzGroupMFD groups PCI assignments into the multifunction-device map exactly
+// the way multifunctionDevGroup does at runtime. This matters because a device
+// that is missing from this map is skipped by both allocateLegacy and allocate -
+// so without it a seed would never actually exercise the allocator.
+func fuzzGroupMFD(pcis []PciDeviceJSON) map[string]*fuzzMFDJSON {
+	mds := map[string]*fuzzMFDJSON{}
+	for i := range pcis {
+		key := fuzzPciLongWOFunc(pcis[i].IoBundle.PciLong)
+		if mds[key] == nil {
+			mds[key] = &fuzzMFDJSON{}
+		}
+		dev := pcis[i]
+		mds[key].Devs = append(mds[key].Devs, &dev)
+	}
+	return mds
+}
+
+// fuzzPci builds a single PCI-assignment seed entry.
+func fuzzPci(pciLong string, ioType types.IoType, netIntfOrder uint32) PciDeviceJSON {
+	return PciDeviceJSON{
+		NetIntfOrder: netIntfOrder,
+		IoBundle: types.IoBundle{
+			PciLong: pciLong,
+			Type:    ioType,
+		},
+	}
+}
+
+// fuzzVNet builds a single virtual-network seed entry.
+func fuzzVNet(vif string, vifOrder uint32) fuzzVNetJSON {
+	v := fuzzVNetJSON{}
+	v.Vif = vif
+	v.VifOrder = vifOrder
+	return v
+}
+
+// fuzzSeed assembles an allocator seed, deriving the multifunction-device map
+// from the PCI assignments the same way the production code path does.
+func fuzzSeed(firstFree int, vnets []fuzzVNetJSON, pcis []PciDeviceJSON) PCIAddressAllocatorJSON {
+	return PCIAddressAllocatorJSON{
+		FirstFreePCIID:       firstFree,
+		VirtualNetworks:      vnets,
+		PCIAssignments:       pcis,
+		MultifunctionDevices: fuzzGroupMFD(pcis),
+	}
+}
+
+// fuzzSeedNoMFD is like fuzzSeed but deliberately omits the multifunction-device
+// map, so that the PCI assignments are skipped by both allocators. It exercises
+// the "missing multifunctionDevices entry" path alongside virtual-network
+// allocation.
+func fuzzSeedNoMFD(firstFree int, vnets []fuzzVNetJSON, pcis []PciDeviceJSON) PCIAddressAllocatorJSON {
+	return PCIAddressAllocatorJSON{
+		FirstFreePCIID:  firstFree,
+		VirtualNetworks: vnets,
+		PCIAssignments:  pcis,
+	}
+}
+
+func FuzzInterfaceLegacyOrderConversion(f *testing.F) {
+	// The seed corpus only provides starting points for the fuzzer to mutate.
+	// convertToInterfaceOrder reproduces the legacy layout only for network
+	// interfaces, so the fuzz body skips any config that contains a non-network PCI
+	// device (allocate places those after the network ones regardless of order). The
+	// seeds are a spread of shapes - virtual networks, single- and multi-function
+	// devices, varying firstFreePCIID; those with non-network devices are simply
+	// skipped at run time.
+	seeds := []PCIAddressAllocatorJSON{
+		// Empty / minimal allocators (nothing to order).
+		{},
+		fuzzSeed(0, []fuzzVNetJSON{}, []PciDeviceJSON{}),
+
+		// A single PCI assignment with no matching multifunction entry: both
+		// allocators must skip it (covers the "missing entry" path).
+		{PCIAssignments: []PciDeviceJSON{{}}},
+		fuzzSeedNoMFD(3,
+			[]fuzzVNetJSON{fuzzVNet("eth0", 1)},
+			[]PciDeviceJSON{fuzzPci("0000:06:00.0", types.IoNetEth, 1)}),
+
+		// Virtual networks only, in ascending VifOrder.
+		fuzzSeed(5, []fuzzVNetJSON{fuzzVNet("eth0", 1)}, nil),
+		fuzzSeed(5, []fuzzVNetJSON{fuzzVNet("eth0", 1), fuzzVNet("eth1", 2)}, nil),
+		fuzzSeed(0, []fuzzVNetJSON{
+			fuzzVNet("eth0", 1), fuzzVNet("eth1", 2), fuzzVNet("eth2", 3),
+		}, nil),
+
+		// Single-function PCI assignments (each a bridge-less device).
+		fuzzSeed(4, nil, []PciDeviceJSON{fuzzPci("0000:06:00.0", types.IoNetEth, 1)}),
+		fuzzSeed(4, nil, []PciDeviceJSON{fuzzPci("0000:00:15.0", types.IoUSBController, 0)}),
+		fuzzSeed(5, nil, []PciDeviceJSON{
+			fuzzPci("0000:06:00.0", types.IoNetEth, 1),
+			fuzzPci("0000:08:00.0", types.IoNetWWAN, 2),
+		}),
+		fuzzSeed(5, nil, []PciDeviceJSON{
+			fuzzPci("0000:06:00.0", types.IoOther, 0),
+			fuzzPci("0000:08:00.0", types.IoUSBController, 0),
+		}),
+
+		// Multifunction devices (several functions sharing one bridge).
+		fuzzSeed(5, nil, []PciDeviceJSON{
+			fuzzPci("0000:06:00.0", types.IoNetEth, 1),
+			fuzzPci("0000:06:00.1", types.IoNetEth, 2),
+		}),
+		fuzzSeed(5, nil, []PciDeviceJSON{
+			fuzzPci("0000:06:00.0", types.IoNetEth, 1),
+			fuzzPci("0000:06:00.1", types.IoOther, 0),
+		}),
+		fuzzSeed(5, nil, []PciDeviceJSON{
+			fuzzPci("0000:06:00.0", types.IoNetEth, 1),
+			fuzzPci("0000:06:00.1", types.IoNetEth, 2),
+			fuzzPci("0000:06:00.2", types.IoNetEth, 3),
+		}),
+
+		// Mixed virtual networks + PCI assignments in natural order.
+		fuzzSeed(5,
+			[]fuzzVNetJSON{fuzzVNet("eth0", 1)},
+			[]PciDeviceJSON{fuzzPci("0000:06:00.0", types.IoNetEth, 5)}),
+		fuzzSeed(5,
+			[]fuzzVNetJSON{fuzzVNet("eth0", 1), fuzzVNet("eth1", 2)},
+			[]PciDeviceJSON{
+				fuzzPci("0000:06:00.0", types.IoNetEth, 3),
+				fuzzPci("0000:06:00.1", types.IoNetEth, 4),
+				fuzzPci("0000:08:00.0", types.IoNetWWAN, 5),
+				fuzzPci("0000:00:15.0", types.IoUSBController, 0),
+				fuzzPci("0000:0a:00.0", types.IoOther, 0),
+			}),
+
+		// Larger firstFreePCIID offset.
+		fuzzSeed(12,
+			[]fuzzVNetJSON{fuzzVNet("eth0", 1)},
+			[]PciDeviceJSON{fuzzPci("0000:06:00.0", types.IoNetEth, 2)}),
+
+		// Empty PciLong maps to a degenerate group key, so the device is still
+		// allocated rather than skipped (exercises that edge of pciLongWOFunction).
+		fuzzSeed(5, nil, []PciDeviceJSON{fuzzPci("", types.IoNetEth, 1)}),
+	}
+
+	for _, seed := range seeds {
+		bs, err := json.Marshal(seed)
+		if err != nil {
+			f.Fatalf("could not marshal seed example: %v", err)
+		}
+		f.Log(string(bs))
+		f.Add(string(bs))
+	}
+
+	f.Fuzz(func(t *testing.T, allocatorJSON string) {
+		var aj PCIAddressAllocatorJSON
+		err := json.Unmarshal([]byte(allocatorJSON), &aj)
+		if err != nil {
+			return
+		}
+		aLegacy := aj.pciAddressAllocator()
+		aLegacy.enforceNetInterfaceOrder = false
+
+		aNew := aj.pciAddressAllocator()
+		aNew.enforceNetInterfaceOrder = false
+
+		aLegacy.allocateLegacy()
+		aNew.allocate()
+
+		// convertToInterfaceOrder (run by allocate in the legacy case) rewrites the
+		// interface-order fields, so compare the allocated PCI addresses rather than
+		// the whole struct: both allocators must place every VIF and PCI device at
+		// the same address.
+		for i := range aLegacy.virtualNetworks {
+			if aLegacy.virtualNetworks[i].pciDeviceID != aNew.virtualNetworks[i].pciDeviceID {
+				t.Fatalf("VIF #%d address mismatch for %s:\nlegacy=%d vs new=%d",
+					i, allocatorJSON, aLegacy.virtualNetworks[i].pciDeviceID,
+					aNew.virtualNetworks[i].pciDeviceID)
+			}
+		}
+		for i := range aLegacy.pciAssignments {
+			if aLegacy.pciAssignments[i].pciBridgeID != aNew.pciAssignments[i].pciBridgeID ||
+				aLegacy.pciAssignments[i].pciDeviceID != aNew.pciAssignments[i].pciDeviceID {
+				t.Fatalf("PCI device #%d (%s) address mismatch for %s:\n"+
+					"legacy=(bridge %d, dev %d) vs new=(bridge %d, dev %d)",
+					i, aLegacy.pciAssignments[i].ioBundle.PciLong, allocatorJSON,
+					aLegacy.pciAssignments[i].pciBridgeID, aLegacy.pciAssignments[i].pciDeviceID,
+					aNew.pciAssignments[i].pciBridgeID, aNew.pciAssignments[i].pciDeviceID)
+			}
+		}
+	})
+
+}
+func (a *pciAddressAllocator) allocateLegacy() error {
+	// Virtual network interfaces precede PCI-passthrough devices in the PCI topology.
+	// Among virtual interfaces, the order received from zedagent is preserved.
+	pciDeviceID := a.firstFreePCIID
+	for i := range a.virtualNetworks {
+		a.virtualNetworks[i].pciDeviceID = pciDeviceID
+		pciDeviceID++
+	}
+
+	// Preserve order of PCI assignments as received from zedagent, but group
+	// functions of the same multifunction PCI device under the same bridge.
+	pciBridgeIDs := make(map[string]int) // key = PCI address without function suffix
+	for i := range a.pciAssignments {
+		pciLongWoFunc, err := a.pciAssignments[i].pciLongWOFunction()
+		if err != nil {
+			logrus.Warnf("retrieving pci address without function failed: %v", err)
+			continue
+		}
+		md := a.multifunctionDevices[pciLongWoFunc]
+		if md == nil {
+			// Even when device is not multifunction, it still should have entry
+			// in the a.multifunctionDevices map.
+			logrus.Warnf("missing multifunctionDevices entry for pci address: %s",
+				pciLongWoFunc)
+			continue
+		}
+		if len(md.devs) > 1 {
+			// Multi-function PCI device.
+			pciBridgeID, bridgeIDAllocated := pciBridgeIDs[pciLongWoFunc]
+			if !bridgeIDAllocated {
+				pciBridgeID = pciDeviceID
+				pciBridgeIDs[pciLongWoFunc] = pciBridgeID
+				pciDeviceID++
+			}
+			a.pciAssignments[i].pciBridgeID = pciBridgeID
+			// Skip PCI address 0 which is unsupported for standard hotplug controller.
+			a.pciAssignments[i].pciDeviceID = md.index(a.pciAssignments[i]) + 1
+		} else {
+			// Not multifunction PCI device.
+			a.pciAssignments[i].pciBridgeID = 0
+			a.pciAssignments[i].pciDeviceID = pciDeviceID
+			pciDeviceID++
+		}
+	}
+	return nil
 }
