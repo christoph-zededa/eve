@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"reflect"
 	"regexp"
 	"testing"
 
@@ -3671,6 +3672,21 @@ func FuzzInterfaceLegacyOrderConversion(f *testing.F) {
 					aNew.pciAssignments[i].pciBridgeID, aNew.pciAssignments[i].pciDeviceID)
 			}
 		}
+
+		// now let's check if it breaks the contract with ordered nics
+
+		aOrderedStable := aj.pciAddressAllocator()
+		aOrderedStable.enforceNetInterfaceOrder = true
+
+		aOrderedNew := aj.pciAddressAllocator()
+		aOrderedNew.enforceNetInterfaceOrder = true
+
+		aOrderedStable.allocateContract()
+		aOrderedNew.allocate()
+
+		if !reflect.DeepEqual(aOrderedNew, aOrderedStable) {
+			t.Fatalf("contract broken between new and stable enforced ordering")
+		}
 	})
 
 }
@@ -3716,6 +3732,154 @@ func (a *pciAddressAllocator) allocateLegacy() error {
 			a.pciAssignments[i].pciBridgeID = 0
 			a.pciAssignments[i].pciDeviceID = pciDeviceID
 			pciDeviceID++
+		}
+	}
+	return nil
+}
+
+// allocate sets pciDeviceID and pciBridgeID for every pciDevice and virtualNetwork
+// based on user-configured ordering requirements.
+func (a *pciAddressAllocator) allocateContract() error {
+	if !a.enforceNetInterfaceOrder {
+		// Fallback to legacy ordering of PCI devices.
+		return a.allocateLegacy()
+	}
+
+	// Determine PCI addresses for virtual network interfaces, which are connected
+	// to the root bus using root ports.
+	for i := range a.virtualNetworks {
+		pciDeviceID := a.firstFreePCIID
+		// Increment pciDeviceID by 1 for every (virtual or assigned) PCI device
+		// which should have lower PCI address.
+		// For a multifunction PCI device, we increment by 1 for the entire group of
+		// functions, as they share a single address on the root bus through their bridge.
+		for j := range a.virtualNetworks {
+			if i == j {
+				continue
+			}
+			if a.virtualNetworks[j].VifOrder < a.virtualNetworks[i].VifOrder {
+				pciDeviceID++
+			}
+		}
+		for pciAddr, md := range a.multifunctionDevices {
+			isBefore, isAfter := md.compareOrderWithVirtNet(a.virtualNetworks[i])
+			invalidOrder := isBefore && isAfter
+			if invalidOrder {
+				return logError("Invalid VIF %s configuration: user-defined network "+
+					"interface order disrupts the function sequence of the multifunction "+
+					"PCI device %s. Interleaving PCI device functions with other devices "+
+					"is not allowed.", a.virtualNetworks[i].Vif, pciAddr)
+			}
+			if isBefore {
+				pciDeviceID++
+			}
+		}
+		a.virtualNetworks[i].pciDeviceID = pciDeviceID
+	}
+
+	// Determine PCI addresses for direct PCI assignments.
+	for i := range a.pciAssignments {
+		pciLongWoFunc, err := a.pciAssignments[i].pciLongWOFunction()
+		if err != nil {
+			logrus.Warnf("retrieving pci address without function failed: %v", err)
+			continue
+		}
+		md := a.multifunctionDevices[pciLongWoFunc]
+		if md == nil {
+			// Even when device is not multifunction, it still should have entry
+			// in the multifunctionDevices map.
+			logrus.Warnf("missing multifunctionDevices entry for pci address: %s",
+				pciLongWoFunc)
+			continue
+		}
+		// Increment pciDeviceOrBridgeID by 1 for every (virtual or assigned) PCI device
+		// which should have lower PCI address.
+		// For a multifunction PCI device, we increment by 1 for the entire group of
+		// functions, as they share a single address on the root bus through their bridge.
+		pciDeviceOrBridgeID := a.firstFreePCIID
+		for _, virtNet := range a.virtualNetworks {
+			// Order validity already checked when addresses for virtual networks
+			// were determined.
+			if isBefore, _ := md.compareOrderWithVirtNet(virtNet); !isBefore {
+				// Also increased when order is undefined, i.e. this PCI device
+				// does not have network function. Non-networking PCI devices
+				// are placed after virtual network interfaces.
+				pciDeviceOrBridgeID++
+			}
+		}
+		thisHasNetFunc := md.hasNetworkFunction()
+		for pciAddr2, md2 := range a.multifunctionDevices {
+			if pciLongWoFunc == pciAddr2 {
+				continue
+			}
+			theOtherHasNetFunc := md2.hasNetworkFunction()
+			if !thisHasNetFunc {
+				if theOtherHasNetFunc {
+					// Network functions take priority in the order.
+					pciDeviceOrBridgeID++
+				} else {
+					// Between non-networking devices, order by PCI addresses
+					// lexicographically.
+					if pciLongWoFunc > pciAddr2 {
+						pciDeviceOrBridgeID++
+					}
+				}
+				continue
+			}
+			if !theOtherHasNetFunc {
+				// The other non-network device is ordered after this network device.
+				continue
+			}
+			// Both devices have at least one network function.
+			theOtherIsBefore, theOtherIsAfter := md2.compareOrder(*md)
+			invalidOrder := theOtherIsBefore && theOtherIsAfter
+			if invalidOrder {
+				return logError("User-defined network interface order disrupts "+
+					"the function sequence of the multifunction PCI devices %s and %s. "+
+					"Interleaving PCI device functions with other devices/functions "+
+					"is not allowed.", pciLongWoFunc, pciAddr2)
+			}
+			if theOtherIsBefore {
+				pciDeviceOrBridgeID++
+			}
+		}
+		if len(md.devs) > 1 {
+			// pciDeviceOrBridgeID is for the bridge wrt. the root bus.
+			a.pciAssignments[i].pciBridgeID = pciDeviceOrBridgeID
+			// Determine device address on the secondary bus provided by the bridge.
+			// Skip PCI address 0 which is unsupported for standard hotplug controller.
+			pciDeviceID := 1
+			devIndex := md.index(a.pciAssignments[i])
+			thisIsNetDev := a.pciAssignments[i].ioBundle.Type.IsNet()
+			for dev2Index, dev2 := range md.devs {
+				theOtherIsNetDev := dev2.ioBundle.Type.IsNet()
+				if !thisIsNetDev {
+					if theOtherIsNetDev {
+						// Network functions take priority in the order.
+						pciDeviceID++
+					} else {
+						// Between non-networking functions, preserve the order received
+						// from zedagent.
+						if devIndex > dev2Index {
+							pciDeviceID++
+						}
+					}
+					continue
+				}
+				if !theOtherIsNetDev {
+					// The other non-network device is ordered after this network device.
+					continue
+				}
+				// Both devices are of the networking type.
+				if dev2.netIntfOrder < a.pciAssignments[i].netIntfOrder {
+					pciDeviceID++
+				}
+			}
+			a.pciAssignments[i].pciDeviceID = pciDeviceID
+		} else {
+			// Not multifunction PCI device.
+			a.pciAssignments[i].pciBridgeID = 0
+			a.pciAssignments[i].pciDeviceID = pciDeviceOrBridgeID
 		}
 	}
 	return nil
