@@ -8,6 +8,7 @@ import (
 	"encoding/pem"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -98,6 +99,189 @@ func buildSdnImage(ctx context.Context, log *logrus.Entry, imageDirPath,
 	return imageSpec, nil
 }
 
+const (
+	// liveDiskPartSpec is the partition list make-raw is asked for when assembling a
+	// live device disk. Mirrors PART_SPEC in do_live() of pkg/eve/runme.sh.
+	liveDiskPartSpec = "efi conf imga"
+
+	// defaultLiveDiskSizeMB is used when the caller does not request a disk size.
+	// Mirrors DEFAULT_LIVE_IMG_SIZE in pkg/eve/runme.sh.
+	defaultLiveDiskSizeMB = 28762
+)
+
+// assembleLiveDiskScript reproduces what do_live() in pkg/eve/runme.sh does, for
+// execution inside EVE's mkimage-raw-efi package image. Config files staged in /in
+// are copied into the config partition, a soft serial number is generated if the
+// partition does not already carry one (a live image is normally given one by the
+// installer, which is skipped here), and make-raw then assembles the disk.
+const assembleLiveDiskScript = `
+set -e
+if [ -n "$(ls -A /in 2>/dev/null)" ]; then
+	mcopy -o -i /parts/config.img -s /in/* ::/
+fi
+if ! mcopy -o -i /parts/config.img ::/soft_serial /tmp 2>/dev/null; then
+	uuidgen > /tmp/soft_serial
+	mcopy -o -i /parts/config.img /tmp/soft_serial ::/soft_serial
+fi
+echo "soft_serial=$(cat /tmp/soft_serial)"
+truncate -s %dM /out/live.raw
+/make-raw /out/live.raw "%s"
+`
+
+// eveBuildDirOf returns the EVE build directory holding the given rootfs image, i.e.
+// the dist/<arch>/current/installer directory it was built into. Empty in, empty out.
+func eveBuildDirOf(rootfsPath string) string {
+	if rootfsPath == "" {
+		return ""
+	}
+	return filepath.Dir(rootfsPath)
+}
+
+// eveBuildHasDiskParts reports whether an EVE build directory holds everything needed
+// to assemble a device disk without falling back to an EVE container image. Note that
+// "make rootfs" alone does not: grub, u-boot, the UEFI firmware and the config
+// partition belong to the "diskparts", "live" and "eve" targets.
+func eveBuildHasDiskParts(bitsDir string) bool {
+	if bitsDir == "" {
+		return false
+	}
+	if !dirExists(filepath.Join(bitsDir, "EFI")) {
+		return false
+	}
+	if !dirExists(filepath.Join(bitsDir, "firmware")) {
+		return false
+	}
+	info, err := os.Stat(filepath.Join(bitsDir, "config.img"))
+	return err == nil && info.Mode().IsRegular()
+}
+
+// eveDiskPayloads are the artifacts that make-raw writes onto the device disk, or
+// that runme.sh consults to size it, and which sit next to a locally built rootfs in
+// dist/<arch>/current/installer. When a rootfs override is in use these are taken
+// from that same build so that no part of an unrelated EVE build reaches the device.
+// rootfs.img is handled separately (bind-mounted rather than copied), as is
+// config.img (written per device by runme.sh) and firmware (not part of the disk).
+var eveDiskPayloads = []string{"EFI", "boot", "eve_version", "eve_platform"}
+
+// dirExists reports whether path exists and is a directory.
+func dirExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
+}
+
+// buildLiveDiskFromEVEBuild assembles a live device disk out of a local EVE build,
+// using EVE's mkimage-raw-efi package image as the builder. No lfedge/eve image is
+// involved: every partition comes from bitsDir (a dist/<arch>/current/installer
+// directory) and make-raw does the assembly, with assembleLiveDiskScript standing in
+// for runme.sh, which only the lfedge/eve image carries.
+//
+// imageDirPath must already exist; its cleanup on failure is the caller's business.
+func buildLiveDiskFromEVEBuild(ctx context.Context, log *logrus.Entry,
+	imageDirPath, bitsDir, rootfsPath, builderImage string, config *api.EveConfig,
+	proxyCACerts []*pem.Block, diskSize uint64) (imageSpec provider.ImageSpec, err error) {
+
+	haveBuilder, err := utils.HaveDockerImage(ctx, log, builderImage)
+	if err != nil {
+		return imageSpec, fmt.Errorf("failed to check for disk builder image %q: %w",
+			builderImage, err)
+	}
+	if !haveBuilder {
+		if err = utils.PullDockerImage(ctx, log, builderImage); err != nil {
+			return imageSpec, fmt.Errorf("failed to pull disk builder image %q: %w",
+				builderImage, err)
+		}
+	}
+
+	// Each device needs its own UEFI firmware: QEMU uses OVMF_VARS.fd as writable
+	// pflash, so it cannot be shared between devices or with the build tree.
+	imageSpec.UEFIFirmwareDirPath = filepath.Join(imageDirPath, "firmware")
+	err = utils.CopyFolder(filepath.Join(bitsDir, "firmware"),
+		imageSpec.UEFIFirmwareDirPath)
+	if err != nil {
+		return imageSpec, fmt.Errorf("failed to copy UEFI firmware from %q: %w",
+			bitsDir, err)
+	}
+
+	// Stage what make-raw reads from /parts. config.img is copied because the script
+	// mcopies this device's identity into it, and the rest so that nothing in the
+	// build tree can be written to. rootfs.img is bind-mounted instead of copied: it
+	// is by far the largest input and is only ever read.
+	partsDir := filepath.Join(imageDirPath, "parts")
+	for _, name := range []string{"EFI", "boot", "config.img"} {
+		src := filepath.Join(bitsDir, name)
+		srcInfo, statErr := os.Stat(src)
+		if statErr != nil {
+			// Only config.img and EFI are mandatory, and both were checked by
+			// eveBuildHasDiskParts; make-raw treats a missing boot dir as optional.
+			continue
+		}
+		dst := filepath.Join(partsDir, name)
+		if srcInfo.IsDir() {
+			err = utils.CopyFolder(src, dst)
+		} else {
+			err = utils.CopyFile(src, dst)
+		}
+		if err != nil {
+			return imageSpec, fmt.Errorf("failed to stage %q for the disk build: %w",
+				src, err)
+		}
+	}
+
+	var configDir string
+	configDir, err = makeEVEConfigDir(imageDirPath, config, proxyCACerts)
+	if err != nil {
+		return imageSpec, fmt.Errorf("failed to prepare EVE config dir: %w", err)
+	}
+	volumeMap := map[string]string{
+		"/parts":            partsDir,
+		"/parts/rootfs.img": rootfsPath,
+		"/out":              imageDirPath,
+	}
+	if configDir != "" {
+		volumeMap["/in"] = configDir
+		defer os.RemoveAll(configDir)
+	}
+
+	diskSizeMB := uint64(defaultLiveDiskSizeMB)
+	if diskSize != 0 {
+		diskSizeMB = diskSize >> 20
+	}
+	script := fmt.Sprintf(assembleLiveDiskScript, diskSizeMB, liveDiskPartSpec)
+
+	log.Infof("Assembling a %d MB device disk from EVE build %q using %s; "+
+		"no EVE container image involved", diskSizeMB, bitsDir, builderImage)
+	result, err := utils.RunDockerEntrypoint(ctx, log, builderImage,
+		[]string{"/bin/sh"}, []string{"-c", script}, volumeMap, "")
+	if err != nil {
+		return imageSpec, fmt.Errorf("failed to assemble the device disk: %w", err)
+	}
+	log.Debugf("Disk build output:\n%s", result)
+
+	rawPath := filepath.Join(imageDirPath, "live.raw")
+	if _, err = os.Stat(rawPath); err != nil {
+		log.Infof("Disk build output:\n%s", result)
+		return imageSpec, fmt.Errorf("the disk build produced no %s: %w", rawPath, err)
+	}
+
+	// Compress into qcow2, matching what runme.sh's dump() would have produced, and
+	// drop the sparse raw so only one copy of the disk is kept.
+	imageSpec.Qcow2ImagePath = filepath.Join(imageDirPath, "live.raw.qcow2")
+	convert := exec.CommandContext(ctx, "qemu-img", "convert", "-c",
+		"-f", "raw", "-O", "qcow2", rawPath, imageSpec.Qcow2ImagePath)
+	if out, cmdErr := convert.CombinedOutput(); cmdErr != nil {
+		err = fmt.Errorf("failed to convert %q to qcow2: %w: %s",
+			rawPath, cmdErr, string(out))
+		return imageSpec, err
+	}
+	if rmErr := os.Remove(rawPath); rmErr != nil {
+		log.Warnf("Failed to remove intermediate raw disk %q: %v", rawPath, rmErr)
+	}
+
+	log.Infof("Assembled device disk %q from EVE build %q",
+		imageSpec.Qcow2ImagePath, bitsDir)
+	return imageSpec, nil
+}
+
 // buildEVEImage builds an EVE image (QCOW2 or RAW) using EVE Docker image as the builder.
 // It optionally extracts UEFI firmware, mounts configuration files, and invokes the
 // EVE container to produce the final disk image.
@@ -107,13 +291,22 @@ func buildSdnImage(ctx context.Context, log *logrus.Entry, imageDirPath,
 //   - log: Logrus entry for structured logging.
 //   - imageDirPath: Path to the output directory.
 //   - dockerImageName: Name of the EVE Docker image to build from.
+//   - rootfsOverride: Optional path to a locally built rootfs image to use instead of
+//     the one baked into the EVE Docker image. The other artifacts of that build
+//     (see eveDiskPayloads) and its UEFI firmware are then used as well, leaving the
+//     Docker image to contribute only runme.sh, make-raw and the tools they need.
+//   - diskBuilderImage: Optional mkimage-raw-efi package image. When it is set and the
+//     build referenced by rootfsOverride is complete, the disk is assembled from that
+//     build alone and dockerImageName is not used at all.
 //   - config: Optional EveConfig providing server, certificates, keys, and JSON configs.
 //   - proxyCACerts: Optional slice of PEM blocks containing trusted proxy CA certificates.
 //   - installer: If true, builds a RAW installer image instead of the live QCOW2 image.
 //
 // Behavior:
+//   - Validates rootfsOverride, which does not apply to installer images.
 //   - Ensures the target directory exists.
-//   - Extracts UEFI firmware from the Docker image unless building an installer.
+//   - Obtains UEFI firmware (from the local build if given, else from the Docker
+//     image) unless building an installer.
 //   - Creates a temporary configuration directory with the contents of `config`.
 //   - Runs the Docker container with appropriate args and mounts to generate the EVE image.
 //   - Cleans up temporary configuration directory after execution.
@@ -121,8 +314,36 @@ func buildSdnImage(ctx context.Context, log *logrus.Entry, imageDirPath,
 // Returns an error if any step fails (directory creation, firmware extraction,
 // Docker run, etc.).
 func buildEVEImage(ctx context.Context, log *logrus.Entry,
-	imageDirPath, dockerImageName string, config *api.EveConfig, proxyCACerts []*pem.Block,
+	imageDirPath, dockerImageName, rootfsOverride, diskBuilderImage string,
+	config *api.EveConfig, proxyCACerts []*pem.Block,
 	diskSize uint64, installer bool) (imageSpec provider.ImageSpec, err error) {
+
+	// Validate the rootfs override before doing any work. A locally built rootfs
+	// lives in dist/<arch>/current/installer, which is exactly the /bits directory
+	// of the EVE container image, so remember it as the source for the rest of the
+	// disk's payloads as well.
+	var eveBitsDir string
+	if rootfsOverride != "" {
+		if installer {
+			log.Warnf("Ignoring EVE rootfs override %q: an installer image embeds "+
+				"its own rootfs, so the installed EVE will come from the container "+
+				"image %s", rootfsOverride, dockerImageName)
+			rootfsOverride = ""
+		} else {
+			var rootfsInfo os.FileInfo
+			if rootfsInfo, err = os.Stat(rootfsOverride); err != nil {
+				err = fmt.Errorf("cannot use EVE rootfs override %q: %w",
+					rootfsOverride, err)
+				return imageSpec, err
+			}
+			if !rootfsInfo.Mode().IsRegular() {
+				err = fmt.Errorf("EVE rootfs override %q is not a regular file",
+					rootfsOverride)
+				return imageSpec, err
+			}
+			eveBitsDir = eveBuildDirOf(rootfsOverride)
+		}
+	}
 
 	// Ensure the target directory exists.
 	if err = os.MkdirAll(imageDirPath, 0o755); err != nil {
@@ -138,16 +359,36 @@ func buildEVEImage(ctx context.Context, log *logrus.Entry,
 		}
 	}()
 
+	// When the local build carries every partition, assemble the disk from it alone.
+	// This keeps a pillar-only iteration down to "make ROOTFS_FORMAT=ext4 pkgs rootfs
+	// diskparts" with no lfedge/eve image anywhere in the loop.
+	if !installer && diskBuilderImage != "" && eveBuildHasDiskParts(eveBitsDir) {
+		return buildLiveDiskFromEVEBuild(ctx, log, imageDirPath, eveBitsDir,
+			rootfsOverride, diskBuilderImage, config, proxyCACerts, diskSize)
+	}
+
 	if !installer {
 		imageSpec.Qcow2ImagePath = filepath.Join(imageDirPath, "live.raw.qcow2")
-		// Extract UEFI firmware for EVE.
+		// UEFI firmware for EVE. Every device needs its own copy because QEMU uses
+		// OVMF_VARS.fd as writable pflash, so this is always a copy and never a
+		// bind mount of the source. Prefer the local build when one was given.
 		imageSpec.UEFIFirmwareDirPath = filepath.Join(imageDirPath, "firmware")
-		err = utils.ExtractFromDockerImage(ctx, log,
-			dockerImageName, imageDirPath, "/bits/firmware")
-		if err != nil {
-			err = fmt.Errorf("failed to extract UEFI firmware from EVE image %s: %w",
-				dockerImageName, err)
-			return imageSpec, err
+		localFirmware := filepath.Join(eveBitsDir, "firmware")
+		if eveBitsDir != "" && dirExists(localFirmware) {
+			err = utils.CopyFolder(localFirmware, imageSpec.UEFIFirmwareDirPath)
+			if err != nil {
+				err = fmt.Errorf("failed to copy UEFI firmware from %q: %w",
+					localFirmware, err)
+				return imageSpec, err
+			}
+		} else {
+			err = utils.ExtractFromDockerImage(ctx, log,
+				dockerImageName, imageDirPath, "/bits/firmware")
+			if err != nil {
+				err = fmt.Errorf("failed to extract UEFI firmware from EVE image %s: %w",
+					dockerImageName, err)
+				return imageSpec, err
+			}
 		}
 	} else {
 		imageSpec.RawImagePath = filepath.Join(imageDirPath, "installer.raw")
@@ -169,6 +410,46 @@ func buildEVEImage(ctx context.Context, log *logrus.Entry,
 	if configDir != "" {
 		volumeMap["/in"] = configDir
 		defer os.RemoveAll(configDir)
+	}
+
+	// Take the disk's payloads from a local EVE build instead of from the container
+	// image. The rootfs is large and read-only, so it is bind-mounted in place; the
+	// small ones are staged into this device's own directory (under imageDirPath, so
+	// that the path is also valid on the host for docker-out-of-docker) which keeps
+	// them per-device and keeps the caller's build tree read-only in practice, even
+	// though bind mounts here are writable. config.img is deliberately not staged:
+	// runme.sh mcopies this device's identity into it, and the container image's
+	// writable layer is the right place for that. What remains from the container
+	// image is therefore runme.sh, make-raw and the tools they need.
+	if rootfsOverride != "" {
+		volumeMap["/bits/rootfs.img"] = rootfsOverride
+		stagedBits := filepath.Join(imageDirPath, "bits")
+		var staged []string
+		for _, name := range eveDiskPayloads {
+			src := filepath.Join(eveBitsDir, name)
+			srcInfo, statErr := os.Stat(src)
+			if statErr != nil {
+				// Not every build produces every artifact; fall back to the
+				// container image's copy for whatever is absent.
+				continue
+			}
+			dst := filepath.Join(stagedBits, name)
+			if srcInfo.IsDir() {
+				err = utils.CopyFolder(src, dst)
+			} else {
+				err = utils.CopyFile(src, dst)
+			}
+			if err != nil {
+				err = fmt.Errorf("failed to stage EVE build artifact %q: %w", src, err)
+				return imageSpec, err
+			}
+			volumeMap["/bits/"+name] = dst
+			staged = append(staged, name)
+		}
+		log.Infof("Assembling the device disk from EVE build %q (rootfs.img, %s); "+
+			"container image %s contributes only the config partition and the tools "+
+			"that build the disk", eveBitsDir, strings.Join(staged, ", "),
+			dockerImageName)
 	}
 
 	// Run the EVE docker container to build the EVE disk image.

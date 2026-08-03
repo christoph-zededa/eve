@@ -47,6 +47,8 @@ type broker struct {
 	provider       provider.DeviceProvider
 	providerName   string
 	imageDir       string
+	eveRootfs      string
+	eveDiskBuilder string
 	sdnGrpcPort    uint16
 	supportedArchs []api.ArchType
 	proxyCACerts   []*pem.Block
@@ -86,7 +88,8 @@ type device struct {
 }
 
 func newBroker(log *logrus.Logger, provider provider.DeviceProvider,
-	providerName, imageDir string, sdnGrpcPort uint16) (*broker, error) {
+	providerName, imageDir, eveRootfs, eveDiskBuilder string,
+	sdnGrpcPort uint16) (*broker, error) {
 	supportedArchs, err := provider.GetSupportedDeviceArchs()
 	if err != nil {
 		return nil, fmt.Errorf("cannot retrieve supported device architectures: %w", err)
@@ -116,6 +119,8 @@ func newBroker(log *logrus.Logger, provider provider.DeviceProvider,
 		provider:       provider,
 		providerName:   providerName,
 		imageDir:       imageDir,
+		eveRootfs:      eveRootfs,
+		eveDiskBuilder: eveDiskBuilder,
 		sdnGrpcPort:    sdnGrpcPort,
 		supportedArchs: supportedArchs,
 		proxyCACerts:   proxyCACerts,
@@ -409,20 +414,26 @@ func (b *broker) BuildImage(
 		return nil, err
 	}
 
-	// Check if the Docker image exists locally
-	haveImage, err := utils.HaveDockerImage(ctx, log, dockerImageName)
-	if err != nil {
-		err = fmt.Errorf("failed to check for image %q presence: %w",
-			dockerImageName, err)
-		log.Error(err)
-		return nil, err
-	}
-	if !haveImage {
-		log.Infof("Docker image %q not found locally, trying to pull...", dockerImageName)
-		err = utils.PullDockerImage(ctx, log, dockerImageName)
+	// The EVE container image is only needed when the disk cannot be assembled from a
+	// local EVE build. Checking that first means a purely local iteration never has to
+	// have (or pull) one at all.
+	if req.MakeInstaller || b.eveDiskBuilder == "" ||
+		!eveBuildHasDiskParts(eveBuildDirOf(b.eveRootfs)) {
+		haveImage, err := utils.HaveDockerImage(ctx, log, dockerImageName)
 		if err != nil {
-			log.Warnf("Failed to pull Docker image %q: %v", dockerImageName, err)
-			return &api.BuildImageResponse{MissingEveContainerImage: true}, nil
+			err = fmt.Errorf("failed to check for image %q presence: %w",
+				dockerImageName, err)
+			log.Error(err)
+			return nil, err
+		}
+		if !haveImage {
+			log.Infof("Docker image %q not found locally, trying to pull...",
+				dockerImageName)
+			err = utils.PullDockerImage(ctx, log, dockerImageName)
+			if err != nil {
+				log.Warnf("Failed to pull Docker image %q: %v", dockerImageName, err)
+				return &api.BuildImageResponse{MissingEveContainerImage: true}, nil
+			}
 		}
 	}
 
@@ -430,6 +441,7 @@ func (b *broker) BuildImage(
 	providerDevName := fmt.Sprintf("eve-%s-%s", clientSession.clientID, req.DeviceName)
 	imageDirPath := filepath.Join(b.imageDir, providerDevName)
 	imageSpec, err := buildEVEImage(ctx, log, imageDirPath, dockerImageName,
+		b.eveRootfs, b.eveDiskBuilder,
 		req.Config, b.proxyCACerts, req.DiskBytes, req.MakeInstaller)
 	if err != nil {
 		err = fmt.Errorf("failed to build EVE image for device %q: %v",

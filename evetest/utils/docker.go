@@ -241,9 +241,21 @@ func PullDockerImage(ctx context.Context, log *logrus.Entry, imageName string) e
 // is still returned.
 func RunDockerCommand(ctx context.Context, log *logrus.Entry, image string, command string,
 	volumeMap map[string]string, platform string) (result string, err error) {
+	return RunDockerEntrypoint(ctx, log, image, nil, strings.Fields(command),
+		volumeMap, platform)
+}
 
-	log.Debugf("Running 'docker run %s %s' (platform=%q) with volumes %v",
-		image, command, platform, volumeMap)
+// RunDockerEntrypoint is RunDockerCommand with explicit control over the image's
+// entrypoint and argument vector. Unlike RunDockerCommand it does not split
+// arguments on whitespace, so an argument may itself be a whole shell script
+// (e.g. entrypoint ["/bin/sh"] with args ["-c", "<script>"]).
+// A nil entrypoint leaves the image's own entrypoint in place.
+func RunDockerEntrypoint(ctx context.Context, log *logrus.Entry, image string,
+	entrypoint, args []string, volumeMap map[string]string,
+	platform string) (result string, err error) {
+
+	log.Debugf("Running 'docker run %s' entrypoint=%v args=%v (platform=%q) "+
+		"with volumes %v", image, entrypoint, args, platform, volumeMap)
 
 	cli, err := client.NewClientWithOpts(
 		client.FromEnv,
@@ -281,9 +293,10 @@ func RunDockerCommand(ctx context.Context, log *logrus.Entry, image string, comm
 	resp, err := cli.ContainerCreate(
 		ctx,
 		&container.Config{
-			Image: image,
-			Cmd:   strings.Fields(command),
-			Tty:   true,
+			Image:      image,
+			Entrypoint: entrypoint,
+			Cmd:        args,
+			Tty:        true,
 		},
 		&container.HostConfig{
 			Mounts: mounts,

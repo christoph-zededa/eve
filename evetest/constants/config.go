@@ -77,6 +77,25 @@ const (
 	// This is read by the evetest container.
 	EVERepoEnv = "EVE_REPO"
 
+	// EVERootfsEnv points to a locally built EVE rootfs image (e.g.
+	// dist/<arch>/current/installer/rootfs.img) to use instead of the one baked
+	// into the EVE container image. Any filesystem supported by EVE works
+	// (squashfs, ext4); an ext4 rootfs built with "make ROOTFS_FORMAT=ext4 rootfs"
+	// avoids the slow squashfs compression, which makes it the faster choice when
+	// iterating on pillar.
+	// The path is interpreted on the host running the broker.
+	// When the broker runs in-container, the evetest Makefile sets this
+	// automatically if dist/<arch>/current holds an ext4 rootfs.
+	// This is read by the broker.
+	EVERootfsEnv = "EVE_ROOTFS"
+
+	// EVEDiskBuilderEnv names the container image used to assemble a device disk
+	// from a local EVE build, i.e. EVE's mkimage-raw-efi package image (resolved
+	// with "make mkimage-raw-efi-show-tag"). When it is set and the local build
+	// referenced by EVERootfsEnv is complete, no lfedge/eve image is needed at all.
+	// This is read by the broker.
+	EVEDiskBuilderEnv = "EVE_DISK_BUILDER"
+
 	// PreferredArchEnv specifies the preferred CPU architecture for EVE devices.
 	// Accepted values: "amd64", "arm64" (case-insensitive).
 	// The framework will use this architecture if the broker supports it;
@@ -267,6 +286,8 @@ func InitViperConfig() {
 	// EVE image config
 	viper.SetDefault(EVEVersionEnv, "") // Empty = derive from repo
 	viper.SetDefault(EVERepoEnv, DefaultEVERepo)
+	viper.SetDefault(EVERootfsEnv, "")      // Empty = use rootfs from the container image
+	viper.SetDefault(EVEDiskBuilderEnv, "") // Empty = assemble the disk with the EVE container image
 	viper.SetDefault(PreferredArchEnv, DefaultPreferredArch)
 	viper.SetDefault(EVEImgRetentionEnv, DefaultEVEImgRetentionMinutes)
 

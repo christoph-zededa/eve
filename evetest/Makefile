@@ -13,6 +13,12 @@ EVETEST_ADAM_REPO ?= lfedge/adam
 # Repository holding built EVE images (mirrors constants.DefaultEVERepo).
 EVETEST_EVE_REPO ?= lfedge/eve
 
+# Hypervisor/arch suffix of EVE image tags (<version>-<hv>-<arch>), mirroring
+# utils.EVEDockerImageName. Used to recognise which locally built EVE images are
+# usable for this run.
+EVETEST_EVE_ARCH := $(or $(EVETEST_PREFERRED_ARCH),$(subst aarch64,arm64,$(subst x86_64,amd64,$(shell uname -m))))
+EVETEST_EVE_HV := $(patsubst kubevirt,k,$(or $(EVETEST_HYPERVISOR),kvm))
+
 EVETEST_IMAGE := $(EVETEST_ORG)/evetest:$(EVETEST_VERSION)-adam-$(EVETEST_ADAM_VERSION)
 EVETEST_API_PORT ?= 50021
 
@@ -52,6 +58,54 @@ ifndef NAME
 endif
 	$(eval EVETEST_NAME := $(NAME))
 endif
+ifndef EVETEST_BROKER_ADDRESS
+ifndef EVETEST_EVE_ROOTFS
+	@# An ext4 rootfs in dist/<arch>/current is only ever produced deliberately
+	@# ('make ROOTFS_FORMAT=ext4 rootfs') to iterate on EVE without paying for a
+	@# full 'make eve', so treat its presence as a request to test it. A squashfs
+	@# rootfs is the ordinary build output and is left alone, since it matches
+	@# whatever 'make eve' produced. Detect ext4 by its superblock magic (0xEF53
+	@# at offset 1080) rather than shelling out to file(1).
+	@# Only for the in-container broker: a local path means nothing to a remote one.
+	$(eval EVETEST_EVE_ROOTFS := $(strip $(shell \
+		d="$$($(MAKE) -s -C $(REPO_ROOT) ZARCH=$(EVETEST_EVE_ARCH) currentdir 2>/dev/null)"; \
+		r="$$d/installer/rootfs.img"; \
+		[ -n "$$d" ] && [ -f "$$r" ] || exit 0; \
+		magic="$$(dd if="$$r" bs=1 skip=1080 count=2 2>/dev/null \
+			| od -An -tx1 | tr -d ' \n')"; \
+		[ "$$magic" = 53ef ] || exit 0; \
+		t="$$(ls -t "$$d"/rootfs-*.tar 2>/dev/null | head -1)"; \
+		if [ -n "$$t" ] && [ "$$t" -nt "$$r" ]; then \
+			echo "NOTE: $$r is older than $$t, so it does NOT contain your latest" \
+				"changes (this is what 'LIVE_UPDATE=1 live' leaves behind)." >&2; \
+			echo "NOTE: refresh it with 'make ROOTFS_FORMAT=ext4 rootfs'." >&2; \
+		fi; \
+		echo "NOTE: testing locally built ext4 rootfs $$r instead of the one inside" \
+			"the EVE container image." >&2; \
+		echo "$$r" \
+	)))
+endif
+	@# The disk can be assembled from the local build alone, with EVE's
+	@# mkimage-raw-efi package image standing in for the tools that only the much
+	@# larger lfedge/eve image carries. This only works if the build also has the
+	@# non-rootfs partitions ('make diskparts'); the broker falls back to an
+	@# lfedge/eve image otherwise.
+	$(if $(EVETEST_EVE_ROOTFS), \
+		$(eval EVE_BITS_DIR := $(patsubst %/,%,$(dir $(EVETEST_EVE_ROOTFS)))) \
+		$(eval EVETEST_EVE_DISK_BUILDER := $(or $(EVETEST_EVE_DISK_BUILDER),$(strip \
+			$(shell $(MAKE) -s -C $(REPO_ROOT) mkimage-raw-efi-show-tag 2>/dev/null \
+				| tail -n1)))) \
+		$(eval EVE_LOCAL_DISK_BUILD := $(strip $(shell \
+			[ -n "$(EVETEST_EVE_DISK_BUILDER)" ] && [ -d "$(EVE_BITS_DIR)/EFI" ] && \
+				[ -d "$(EVE_BITS_DIR)/firmware" ] && \
+				[ -f "$(EVE_BITS_DIR)/config.img" ] && echo yes))) \
+		$(if $(EVE_LOCAL_DISK_BUILD), \
+			$(info NOTE: assembling the device disk from $(EVE_BITS_DIR) with $(EVETEST_EVE_DISK_BUILDER);) \
+			$(info NOTE: no lfedge/eve image is needed.), \
+			$(info NOTE: $(EVE_BITS_DIR) has no EFI/firmware/config.img, so the disk must be) \
+			$(info NOTE: assembled with an lfedge/eve image. Run 'make diskparts' to avoid that.)) \
+	)
+endif
 	$(eval EVE_VERSION_ENV :=)
 ifndef EVETEST_EVE_VERSION
 	@# Resolve which EVE version to test. On a dirty tree 'make version' embeds
@@ -62,6 +116,9 @@ ifndef EVETEST_EVE_VERSION
 	@# is a dirty build of the same commit and its EVE Docker image exists
 	@# locally. 'make currentversion' reports the full version including the
 	@# hypervisor/arch suffix; strip it by anchoring on the dirty timestamp.
+	@# Failing that, if the rootfs under test is supplied from disk, the container
+	@# image contributes only grub/EFI/config tooling, so any locally built EVE
+	@# image will do (docker lists the most recently created one first).
 	$(eval EVETEST_EVE_VERSION := $(strip $(shell \
 		v="$$($(MAKE) -s -C $(REPO_ROOT) version 2>/dev/null)"; \
 		if echo "$$v" | grep -q -e '-dirty-' && \
@@ -79,6 +136,19 @@ ifndef EVETEST_EVE_VERSION
 				v="$$cur"; \
 			fi; \
 		fi; \
+		if [ -n "$(EVETEST_EVE_ROOTFS)" ] && [ -z "$(EVE_LOCAL_DISK_BUILD)" ] && \
+			! docker images --format '{{.Tag}}' "$(EVETEST_EVE_REPO)" 2>/dev/null \
+				| grep -q "^$$v-"; then \
+			any="$$(docker images --format '{{.Tag}}' "$(EVETEST_EVE_REPO)" 2>/dev/null \
+				| grep -E -- '-$(EVETEST_EVE_HV)-$(EVETEST_EVE_ARCH)$$' | head -1)"; \
+			if [ -n "$$any" ]; then \
+				echo "NOTE: no local EVE image for $$v. The rootfs under test comes from" \
+					"disk, and a container image is still needed to assemble the disk" \
+					"around it (EFI/grub + config partitions, UEFI firmware," \
+					"partitioning tools), so borrowing $(EVETEST_EVE_REPO):$$any." >&2; \
+				v="$${any%-$(EVETEST_EVE_HV)-$(EVETEST_EVE_ARCH)}"; \
+			fi; \
+		fi; \
 		echo "$$v" \
 	)))
 	$(eval EVE_VERSION_ENV := -e EVETEST_EVE_VERSION=$(EVETEST_EVE_VERSION))
@@ -92,6 +162,7 @@ endif
 	$(eval BROKER_IMAGE_MOUNT :=)
 	$(eval BROKER_IMAGE_ENV :=)
 	$(eval BROKER_PROXY_CA_MOUNT :=)
+	$(eval EVE_ROOTFS_OPTS :=)
 ifndef EVETEST_BROKER_ADDRESS
 	@# Broker runs inside the container; it stores per-VM disk images on the
 	@# host. Default to <home-dir>/.evetest because /tmp is usually on the small
@@ -102,6 +173,19 @@ ifndef EVETEST_BROKER_ADDRESS
 ifneq ($(EVETEST_BROKER_PROXY_CA_CHAIN),)
 	$(eval BROKER_PROXY_CA_MOUNT := -v $(EVETEST_BROKER_PROXY_CA_CHAIN):/etc/evetest/proxy/ca-chain.pem:ro)
 endif
+	@# Mount the whole build directory, not just rootfs.img: the broker also reads the
+	@# other partitions (EFI, config.img, firmware) from there. It must resolve to the
+	@# same location inside the container and on the host, because the in-container
+	@# broker passes these paths on to the host Docker daemon. Pass the variables
+	@# explicitly so that both a command-line override and the values auto-detected
+	@# above reach the broker ($(ENV_VARS) only forwards real env vars).
+	$(if $(EVETEST_EVE_ROOTFS), \
+		$(eval EVE_BITS_DIR := $(patsubst %/,%,$(dir $(EVETEST_EVE_ROOTFS)))) \
+		$(eval EVE_ROOTFS_OPTS := -v $(EVE_BITS_DIR):$(EVE_BITS_DIR):ro \
+			-e EVETEST_EVE_ROOTFS=$(EVETEST_EVE_ROOTFS) \
+			$(if $(EVETEST_EVE_DISK_BUILDER), \
+				-e EVETEST_EVE_DISK_BUILDER=$(EVETEST_EVE_DISK_BUILDER))) \
+	)
 	@mkdir -p $(IMAGE_DIR)
 endif
 	@# Detect host Go build cache (optional, used to speed up the test build)
@@ -159,6 +243,7 @@ endif
 		$(ARTIFACTS_MOUNT) \
 		$(BROKER_IMAGE_MOUNT) \
 		$(BROKER_PROXY_CA_MOUNT) \
+		$(EVE_ROOTFS_OPTS) \
 		$(GO_CACHE_MOUNT) \
 		$(DOCKER_CONFIG_MOUNT) \
 		$(ENV_VARS) \

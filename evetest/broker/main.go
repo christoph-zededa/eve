@@ -87,7 +87,10 @@ func main() {
 	// Instantiate evetest broker.
 	sdnGrpcPort := viper.GetUint16(constants.SDNPortEnv)
 	imageDir := viper.GetString(constants.BrokerImageDirEnv)
-	broker, err := newBroker(log, deviceProvider, providerName, imageDir, sdnGrpcPort)
+	eveRootfs := viper.GetString(constants.EVERootfsEnv)
+	eveDiskBuilder := viper.GetString(constants.EVEDiskBuilderEnv)
+	broker, err := newBroker(log, deviceProvider, providerName, imageDir, eveRootfs,
+		eveDiskBuilder, sdnGrpcPort)
 	if err != nil {
 		log.Fatal(err)
 	}

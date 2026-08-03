@@ -514,6 +514,12 @@ currentversion:
 	#echo $(shell readlink $(CURRENT) | sed -E 's/rootfs-(.*)\.[^.]*$/\1/')
 	@cat $(CURRENT_DIR)/installer/eve_version
 
+# reports the directory that current points to, so that other tooling (e.g. evetest)
+# can locate build artifacts without having to reconstruct the dist layout itself
+.PHONY: currentdir
+currentdir:
+	@echo $(CURRENT_DIR)
+
 test: $(LINUXKIT) pkg/pillar | $(DIST)
 	@echo Running tests on $(GOMODULE)
 	make -C pkg/pillar test
@@ -786,6 +792,12 @@ initrd: $(INITRD_IMG)
 config: $(CONFIG_IMG)		; $(QUIET): "$@: Succeeded, CONFIG_IMG=$(CONFIG_IMG)"
 ssh-key: $(SSH_KEY)
 rootfs: $(ROOTFS_IMGS) current
+# the non-rootfs pieces of a device disk: grub/EFI, u-boot, UEFI firmware and the
+# config partition. Unlike 'live' this stops short of assembling a disk image, so it
+# is cheap: each piece is extracted from an already built linuxkit package. Together
+# with 'rootfs' this populates dist/<arch>/current well enough for external tooling
+# (evetest) to assemble a device disk without a full 'make eve'.
+diskparts: $(CONFIG_IMG) $(EFI_PART) $(BOOT_PART) $(BIOS_IMG) current
 sbom: $(SBOM)
 live: $(LIVE_IMG) $(BIOS_IMG) current	; $(QUIET): "$@: Succeeded, LIVE_IMG=$(LIVE_IMG)"
 live-%: $(LIVE).%		current ;  $(QUIET): "$@: Succeeded, LIVE=$(LIVE)"
@@ -1361,7 +1373,7 @@ kernel-tag:
 	@echo $(KERNEL_TAG)
 
 .PRECIOUS: rootfs-% $(ROOTFS)-%.img $(ROOTFS_COMPLETE)
-.PHONY: all clean test run pkgs help live rootfs config installer live current FORCE $(DIST) HOSTARCH image-set cache-export eden eden-cover coverage-merge
+.PHONY: all clean test run pkgs help live rootfs diskparts config installer live current FORCE $(DIST) HOSTARCH image-set cache-export eden eden-cover coverage-merge
 FORCE:
 
 .PHONY: evetest

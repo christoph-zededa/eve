@@ -555,6 +555,89 @@ go tool covdata merge \
 The `-path '*/coverage/*'` pattern matches directories one level below any `coverage/`
 directory, which are the per-device subdirectories.
 
+### Fast Pillar Iteration
+
+By default the device disk is built from the rootfs baked into the EVE container image,
+so picking up a pillar change means re-running `make eve` -- squashfs compression plus a
+linuxkit package build. Building only what the disk needs, as ext4, skips both:
+
+```bash
+# Once, and again whenever grub/firmware/config defaults change -- cheap, each piece
+# is extracted from an already built linuxkit package:
+make diskparts
+
+# After each pillar change -- ext4 avoids the slow squashfs compression:
+make ROOTFS_FORMAT=ext4 pkgs rootfs diskparts
+
+make evetest NAME=TestDHCPIPv4Only
+```
+
+No variables to set. An ext4 rootfs in `dist/<arch>/current` is only ever produced
+deliberately, so `make evetest` treats its presence as a request to test it: the file is
+bind-mounted over `/bits/rootfs.img` while the disk is assembled. A squashfs rootfs is the
+ordinary build output and is ignored, since it matches whatever `make eve` produced.
+
+`rootfs.img` is only one of the disk's partitions, so something has to supply the rest and
+assemble them. `dist/<arch>/current/installer` is exactly the `/bits` directory of an EVE
+container image (`pkg/eve/Dockerfile.in` is literally `COPY installer /bits`), and `make
+diskparts` fills it in -- so with it, no `lfedge/eve` image is involved at all:
+
+| Disk piece | Comes from |
+|------------|------------|
+| IMGA (partition 2) | your `rootfs.img`, bind-mounted in place |
+| EFI System Partition (partition 1) | your `EFI/` (grub) and `boot/`, staged per device |
+| CONFIG (partition 4) | your `config.img`, copied per device, into which this device's onboard certificate, key, `server`, `soft_serial` and bootstrap config are written |
+| UEFI firmware for the VM | your `firmware/`, copied per device (QEMU writes `OVMF_VARS.fd`, so it cannot be shared) |
+| GPT layout, partition GUIDs, boot attributes, assembly | `make-raw` from EVE's `mkimage-raw-efi` package image (~30 MB) |
+
+`make-raw` is the one piece that cannot come from the build tree, since it owns EVE's
+on-disk contract: the fixed partition GUIDs, the `gptprio` boot attributes grub relies on,
+and the 10 GB IMGA floor. Everything `runme.sh` adds on top of it -- generating a soft
+serial, writing the config partition, choosing the `efi conf imga` layout and the default
+image size -- is done by the broker instead, so the large `lfedge/eve` image is not needed.
+
+`make diskparts` is required because `make rootfs` builds *only* `rootfs.img`, while
+`EFI/`, `boot/`, `firmware/` and `config.img` belong to the `live` and `eve` targets -- and
+a dirty tree gets a fresh `dist/<arch>/<version>` directory every minute, so they have to
+be rebuilt alongside it. Unlike `live`, `diskparts` stops short of assembling a disk
+image, so it costs seconds.
+
+If those pieces are missing, evetest falls back to building the disk with an `lfedge/eve`
+container image, substituting whichever artifacts your build does have. That path still
+works against published EVE releases, and reports what it is doing:
+
+```
+NOTE: no local EVE image for 0.0.0-master-8f55e697-dirty-…, but the rootfs under test
+      comes from disk, and a container image is still needed to assemble the disk around
+      it, so borrowing lfedge/eve:…
+```
+
+Each run prints what it picked:
+
+```
+NOTE: testing locally built ext4 rootfs /…/installer/rootfs.img instead of the one
+      inside the EVE container image.
+```
+
+Set `EVETEST_EVE_ROOTFS` to point somewhere else, `EVETEST_EVE_DISK_BUILDER` to pin the
+`mkimage-raw-efi` image, or `EVETEST_EVE_VERSION` to pin the `lfedge/eve` image used by
+the fallback path.
+
+Caveats:
+
+- The path is resolved on the host running the broker, so auto-detection is skipped in
+  [distributed mode](#distributed-mode). Set `EVETEST_EVE_ROOTFS` on the broker host
+  instead -- the file is not transferred for you.
+- Run `make diskparts` again after changing grub, the UEFI firmware or the config
+  partition defaults under `conf/`; a bare `make rootfs` will not refresh them, and on a
+  dirty tree it starts a fresh build directory without them.
+- Tests using `CreateFromScratchWithInstaller` are unaffected: an installer image embeds
+  its own rootfs, so the override is ignored (with a warning) for those devices.
+- `LIVE_UPDATE=1` deliberately leaves `rootfs.img` stale and refreshes only
+  `dist/<arch>/current/live.qcow2`. Auto-detection notices this by comparing timestamps
+  against the rootfs tarball and warns, but it still uses the file -- rebuild with
+  `make ROOTFS_FORMAT=ext4 rootfs` to test your latest code.
+
 ### Debugging with Pause
 
 **Pause on failure** -- when a test fails, the environment stays up for inspection:
@@ -697,6 +780,8 @@ non-default behavior.
 | `EVETEST_NAME` | Test or suite name to run (**required**) | -- |
 | `EVETEST_OUTPUT_FORMAT` | `go test` output format: `json` (machine-readable, for `gotestfmt`) or `quiet` (compact, no `-v`); default is verbose (`-v`). **Do not combine `quiet` with `EVETEST_PAUSE_ON_FAILURE` or `EVETEST_PAUSE_ON_CHECKPOINT`** — without `-v`, `go test` buffers all output until the test completes, so a pause appears frozen with no visible output. | -- |
 | `EVETEST_EVE_VERSION` | EVE version to test | current repo HEAD |
+| `EVETEST_EVE_ROOTFS` | Path to a locally built rootfs image to use instead of the one inside the EVE container image (see [Fast Pillar Iteration](#fast-pillar-iteration)) | auto-detected from `dist/<arch>/current` when it holds an ext4 rootfs |
+| `EVETEST_EVE_DISK_BUILDER` | EVE `mkimage-raw-efi` package image used to assemble the device disk from a local build | resolved from the repo with `make mkimage-raw-efi-show-tag` |
 | `EVETEST_PREFERRED_ARCH` | Preferred CPU architecture (`amd64`, `arm64`) | `amd64` |
 | `EVETEST_LOG_LEVEL` | Framework log level (`debug`, `info`, `warn`) | `info` |
 | `EVETEST_COLLECT_ARTIFACTS` | Host path for artifacts (logs, collect-info) | -- |
