@@ -16,6 +16,7 @@ import (
 	"go.podman.io/buildah"
 	"go.podman.io/buildah/define"
 	"go.podman.io/buildah/imagebuildah"
+	"go.podman.io/image/v5/types"
 	"go.podman.io/storage"
 	"go.podman.io/storage/pkg/homedir"
 	"go.podman.io/storage/pkg/unshare"
@@ -168,10 +169,26 @@ func main() {
 		RemoveIntermediateCtrs: false,
 		Layers:                 true,
 		OutputFormat:           define.OCIv1ImageManifest,
+		PullPolicy:             define.PullIfMissing,
 	}
 
-	_, _, err = imagebuildah.BuildDockerfiles(context.TODO(), buildStore, buildOptions, dockerfile)
+	hash, err := PkgHash(d)
 	if err != nil {
 		panic(err)
 	}
+	fmt.Printf("lkt like hash is: %s\n", hash)
+	imageName := fmt.Sprintf("lfedge/eve-debug:%s", hash)
+	imageID, err := buildah.Pull(context.TODO(), imageName, buildah.PullOptions{
+		SystemContext: &types.SystemContext{},
+		Store:         buildStore,
+	})
+	if err != nil {
+		panic(err)
+	}
+	fmt.Printf("pull image id: %s\n", imageID)
+	buildImageID, _, err := imagebuildah.BuildDockerfiles(context.TODO(), buildStore, buildOptions, dockerfile)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Printf("build image id: %s\n", buildImageID)
 }
