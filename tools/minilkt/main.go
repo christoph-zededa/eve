@@ -186,10 +186,11 @@ func main() {
 		SystemContext: &types.SystemContext{},
 		Store:         buildStore,
 	})
-	if err != nil {
-		panic(err)
+	if err == nil {
+		// panic(err)
+		fmt.Printf("pull image id: %s\n", imageID)
+		os.Exit(0)
 	}
-	fmt.Printf("pull image id: %s\n", imageID)
 	buildImageID, _, err := imagebuildah.BuildDockerfiles(context.TODO(), buildStore, buildOptions, dockerfile)
 	if err != nil {
 		panic(err)
