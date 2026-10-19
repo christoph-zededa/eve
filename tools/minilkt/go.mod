@@ -3,6 +3,7 @@ module minilkt
 go 1.26.5
 
 require (
+	github.com/elazarl/goproxy v1.8.2
 	github.com/go-git/go-billy/v5 v5.9.0
 	github.com/go-git/go-git/v5 v5.19.2
 	github.com/opencontainers/runtime-spec v1.3.0
