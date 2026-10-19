@@ -176,8 +176,12 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	fmt.Printf("lkt like hash is: %s\n", hash)
-	imageName := fmt.Sprintf("lfedge/eve-debug:%s", hash)
+	by, err := ParseBuildYAMLDir(d)
+	if err != nil {
+		panic(err)
+	}
+	imageName := fmt.Sprintf("%s/%s:%s", by.Org, by.Image, hash)
+	fmt.Printf("image is: %s\n", imageName)
 	imageID, err := buildah.Pull(context.TODO(), imageName, buildah.PullOptions{
 		SystemContext: &types.SystemContext{},
 		Store:         buildStore,

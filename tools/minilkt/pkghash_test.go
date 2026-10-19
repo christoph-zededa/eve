@@ -94,13 +94,7 @@ func (f *fixture) wantDirty() string {
 // {{.Hash}} part of the tag it prints, or skips the test when no binary exists.
 func linuxkitHash(t *testing.T, pkgDir string) string {
 	t.Helper()
-	bin, err := filepath.Abs("../../build-tools/bin/linuxkit")
-	if err != nil || !isExecutable(bin) {
-		if bin, err = exec.LookPath("linuxkit"); err != nil {
-			t.Skip("no linuxkit binary available as reference")
-		}
-	}
-	out, err := exec.Command(bin, "pkg", "show-tag", pkgDir).CombinedOutput()
+	out, err := exec.Command(linuxkitBin(t), "pkg", "show-tag", pkgDir).CombinedOutput()
 	if err != nil {
 		t.Fatalf("linuxkit pkg show-tag %s: %v\n%s", pkgDir, err, out)
 	}
