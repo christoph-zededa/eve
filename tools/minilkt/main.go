@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"minilkt/dockerproxy"
 	"os"
 	"path/filepath"
 	"slices"
@@ -119,16 +120,25 @@ func dump(n *parser.Node, depth int) {
 }
 
 func main() {
-	os.Setenv("HTTPS_PROXY", "http://localhost:8080")
-	os.Setenv("HTTP_PROXY", "http://localhost:8080")
-	os.Setenv("NO_PROXY", "localhost,127.0.0.1")
-
-	os.Setenv("SSL_CERT_FILE", "/home/christoph/projects/dockerproxy/cert.pem")
-
 	if buildah.InitReexec() {
 		return
 	}
 	unshare.MaybeReexecUsingUserNamespace(false)
+
+	dataDir := "/home/christoph/.minilkt"
+	p, err := dockerproxy.New(filepath.Join(dataDir, "proxy"))
+	p.Verbose = true
+	if err := p.Start(8080); err != nil {
+		panic(err)
+	}
+	defer p.Stop()
+
+	certFile := p.CertPEM
+	os.Setenv("SSL_CERT_FILE", certFile)
+
+	os.Setenv("HTTPS_PROXY", "http://localhost:8080")
+	os.Setenv("HTTP_PROXY", "http://localhost:8080")
+	os.Setenv("NO_PROXY", "localhost,127.0.0.1")
 
 	d, _ := os.Getwd()
 	dockerfile := filepath.Join(d, "Dockerfile")
@@ -154,19 +164,6 @@ func main() {
 		}
 	}()
 
-	// d, err := os.MkdirTemp("", "")
-	// if err != nil {
-	// 	panic(err)
-	// }
-	// defer os.RemoveAll(d)
-	// dockerfile := filepath.Join(d, "Dockerfile")
-	// f, err := os.Create(dockerfile)
-	// if err != nil {
-	// 	panic(err)
-	// }
-	// fmt.Fprintf(f, "FROM quay.io/libpod/alpine\nRUN echo CUT START; find /sys/fs/cgroup -print | sort ; echo CUT END")
-	// f.Close()
-
 	buildOptions := define.BuildOptions{
 		ContextDirectory: d,
 		NamespaceOptions: []define.NamespaceOption{
@@ -179,8 +176,8 @@ func main() {
 		PullPolicy:             define.PullIfMissing,
 		CommonBuildOpts:        &define.CommonBuildOptions{HTTPProxy: true},
 		TransientMounts: []string{
-			"/home/christoph/projects/dockerproxy/cert.pem:/etc/ssl/cert.pem:ro,z",
-			"/home/christoph/projects/dockerproxy/cert.pem:/usr/local/share/ca-certificates/proxy-ca.crt:ro,z",
+			certFile + ":/etc/ssl/cert.pem:ro,z",
+			certFile + ":/usr/local/share/ca-certificates/proxy-ca.crt:ro,z",
 		},
 	}
 
