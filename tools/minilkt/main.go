@@ -119,6 +119,12 @@ func dump(n *parser.Node, depth int) {
 }
 
 func main() {
+	os.Setenv("HTTPS_PROXY", "http://localhost:8080")
+	os.Setenv("HTTP_PROXY", "http://localhost:8080")
+	os.Setenv("NO_PROXY", "localhost,127.0.0.1")
+
+	os.Setenv("SSL_CERT_FILE", "/home/christoph/projects/dockerproxy/cert.pem")
+
 	if buildah.InitReexec() {
 		return
 	}
@@ -165,11 +171,17 @@ func main() {
 		ContextDirectory: d,
 		NamespaceOptions: []define.NamespaceOption{
 			{Name: string(specs.NetworkNamespace), Host: true},
+			{Name: string(specs.NetworkNamespace), Path: "pasta:--splice-only,-T,8080"},
 		},
 		RemoveIntermediateCtrs: false,
 		Layers:                 true,
 		OutputFormat:           define.OCIv1ImageManifest,
 		PullPolicy:             define.PullIfMissing,
+		CommonBuildOpts:        &define.CommonBuildOptions{HTTPProxy: true},
+		TransientMounts: []string{
+			"/home/christoph/projects/dockerproxy/cert.pem:/etc/ssl/cert.pem:ro,z",
+			"/home/christoph/projects/dockerproxy/cert.pem:/usr/local/share/ca-certificates/proxy-ca.crt:ro,z",
+		},
 	}
 
 	hash, err := PkgHash(d)
