@@ -4,10 +4,12 @@ go 1.26.5
 
 require (
 	github.com/elazarl/goproxy v1.8.2
+	github.com/fsouza/go-dockerclient v1.13.2
 	github.com/go-git/go-billy/v5 v5.9.0
 	github.com/go-git/go-git/v5 v5.19.2
 	github.com/opencontainers/runtime-spec v1.3.0
 	github.com/openshift/imagebuilder v1.2.21
+	github.com/spf13/cobra v1.10.2
 	go.podman.io/buildah v1.45.0
 	go.podman.io/image/v5 v5.41.0
 	go.podman.io/storage v1.64.0
@@ -50,7 +52,6 @@ require (
 	github.com/emirpasic/gods v1.18.1 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
 	github.com/fsnotify/fsnotify v1.10.1 // indirect
-	github.com/fsouza/go-dockerclient v1.13.2 // indirect
 	github.com/go-git/gcfg v1.5.1-0.20230307220236-3a3c6141e376 // indirect
 	github.com/go-jose/go-jose/v4 v4.1.4 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
@@ -112,7 +113,6 @@ require (
 	github.com/sirupsen/logrus v1.9.4 // indirect
 	github.com/skeema/knownhosts v1.3.2 // indirect
 	github.com/smallstep/pkcs7 v0.2.1 // indirect
-	github.com/spf13/cobra v1.10.2 // indirect
 	github.com/spf13/pflag v1.0.10 // indirect
 	github.com/stefanberger/go-pkcs11uri v0.0.0-20230803200340-78284954bff6 // indirect
 	github.com/sylabs/sif/v2 v2.24.1 // indirect
