@@ -265,8 +265,8 @@ func TestVerboseLogsCacheHitsAndMisses(t *testing.T) {
 	get(t, client, upstream.URL+"/v")
 	get(t, client, upstream.URL+"/v")
 	for _, want := range []string{
-		"dockerproxy: miss GET " + upstream.URL + "/v",
-		"dockerproxy: hit  GET " + upstream.URL + "/v",
+		"dockerproxy: cache miss GET " + upstream.URL + "/v",
+		"dockerproxy: cache hit  GET " + upstream.URL + "/v",
 	} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("log lacks %q:\n%s", want, out.String())
@@ -286,7 +286,7 @@ func TestDebugLogsGoproxyOutput(t *testing.T) {
 	if !strings.Contains(out.String(), "INFO: ") {
 		t.Errorf("Debug produced no goproxy output:\n%s", out.String())
 	}
-	if strings.Contains(out.String(), "dockerproxy: miss") {
+	if strings.Contains(out.String(), "dockerproxy: cache miss") {
 		t.Errorf("Debug alone logged cache lookups:\n%s", out.String())
 	}
 }

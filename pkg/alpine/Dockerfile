@@ -12,6 +12,7 @@ ARG ALPINE_VERSION=3.22
 # Trigger update for go package
 RUN apk update && apk upgrade -a
 
+RUN echo blablaa
 # Copy Dockerfile so we can include it in the hash
 COPY Dockerfile abuild.conf /etc/
 COPY mirrors /tmp/mirrors/

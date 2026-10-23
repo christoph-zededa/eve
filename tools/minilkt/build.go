@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"minilkt/dockerproxy"
 	"os"
 	"path/filepath"
@@ -33,6 +34,7 @@ func setStoreOptions(opts *storage.StoreOptions) error {
 	return nil
 }
 
+// TODO: use ~/.minilkt
 // storeRoots returns the run and graph roots to build under, or empty strings
 // to keep whatever the config files resolved to.
 //
@@ -85,7 +87,73 @@ func unreadableStore(opt string) bool {
 	return false
 }
 
-func build(d string, forceRebuild bool) {
+func buildMulti(ds []string, forceRebuild bool) {
+	deps := map[string][]string{}
+	image2pkgHashes := map[string]string{}
+	image2path := map[string]string{}
+	for _, d := range ds {
+		hash, err := PkgHash(d)
+		if err != nil {
+			panic(err)
+		}
+		by, err := ParseBuildYAMLDir(d)
+		if err != nil {
+			panic(err)
+		}
+
+		imageName := fmt.Sprintf("%s/%s", by.Org, by.Image)
+		image2pkgHashes[imageName] = hash
+		image2path[imageName] = d
+
+		dfImages, err := DockerfileImages(filepath.Join(d, "Dockerfile"), map[string]string{})
+		if err != nil {
+			panic(err)
+		}
+
+		deps[imageName] = dfImages
+	}
+
+	fmt.Printf("deps: %+v\n", deps)
+
+	if err := dumpBuildMulti(os.Stdout, deps); err != nil {
+		panic(err)
+	}
+	order, err := buildOrder(deps)
+	if err != nil {
+		panic(err)
+	}
+
+	for _, image := range order {
+		replaceImage := map[string]string{}
+		d, found := image2path[image]
+
+		dDeps := deps[image]
+		for _, dep := range dDeps {
+			org, name, _ := splitImage(dep)
+			newImage := fmt.Sprintf("%s/%s", org, name)
+			if image == newImage {
+				continue
+			}
+			newImageHash := image2pkgHashes[newImage]
+			if newImageHash == "" {
+				continue
+			}
+			replaceImage[dep] = fmt.Sprintf("%s:%s", newImage, newImageHash)
+		}
+
+		if !found {
+			log.Fatalf("could not find path for %s\n", image)
+			continue
+		}
+
+		fmt.Printf(">>>>> %s\n", d)
+		fmt.Printf("\t%+v\n", replaceImage)
+		build(d, replaceImage, forceRebuild)
+		fmt.Printf("<<<<<<<<<<<<<\n")
+	}
+}
+
+func build(d string, replaceImage map[string]string, forceRebuild bool) {
 	unshare.MaybeReexecUsingUserNamespace(false)
 
 	dataDir := "/home/christoph/.minilkt"
@@ -104,7 +172,13 @@ func build(d string, forceRebuild bool) {
 	os.Setenv("NO_PROXY", "localhost,127.0.0.1")
 
 	dockerfile := filepath.Join(d, "Dockerfile")
-	parse(dockerfile)
+	// parse(dockerfile)
+	dfImages, err := DockerfileImages(dockerfile, map[string]string{})
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Printf("dfImages: %+v\n", dfImages)
 
 	buildStoreOptions, err := storage.DefaultStoreOptions()
 	if err != nil {
@@ -126,6 +200,24 @@ func build(d string, forceRebuild bool) {
 		}
 	}()
 
+	hash, err := PkgHash(d)
+	if err != nil {
+		panic(err)
+	}
+	by, err := ParseBuildYAMLDir(d)
+	if err != nil {
+		panic(err)
+	}
+	imageName := fmt.Sprintf("%s/%s:%s", by.Org, by.Image, hash)
+	fmt.Printf("image is: %s\n", imageName)
+
+	additionalBuildCtx := map[string]*define.AdditionalBuildContext{}
+	for k, v := range replaceImage {
+		additionalBuildCtx[k] = &define.AdditionalBuildContext{
+			IsImage: true,
+			Value:   v,
+		}
+	}
 	buildOptions := define.BuildOptions{
 		ContextDirectory: d,
 		NamespaceOptions: []define.NamespaceOption{
@@ -141,35 +233,28 @@ func build(d string, forceRebuild bool) {
 			certFile + ":/etc/ssl/cert.pem:ro,z",
 			certFile + ":/usr/local/share/ca-certificates/proxy-ca.crt:ro,z",
 		},
+		AdditionalBuildContexts: additionalBuildCtx,
+		// AdditionalTags:          []string{imageName},
+		Output: imageName,
 	}
+	panic("additionalBuildCtx does not make build again on change")
 	if forceRebuild {
 		buildOptions.NoCache = true
 	}
 
-	hash, err := PkgHash(d)
-	if err != nil {
-		panic(err)
-	}
-	by, err := ParseBuildYAMLDir(d)
-	if err != nil {
-		panic(err)
-	}
-	imageName := fmt.Sprintf("%s/%s:%s", by.Org, by.Image, hash)
-	fmt.Printf("image is: %s\n", imageName)
 	if !forceRebuild {
 		imageID, err := buildah.Pull(context.TODO(), imageName, buildah.PullOptions{
 			SystemContext: &types.SystemContext{},
 			Store:         buildStore,
 		})
 		if err == nil {
-			// panic(err)
 			fmt.Printf("pull image id: %s\n", imageID)
-			os.Exit(0)
+			return
 		}
 	}
 	buildImageID, _, err := imagebuildah.BuildDockerfiles(context.TODO(), buildStore, buildOptions, dockerfile)
 	if err != nil {
 		panic(err)
 	}
-	fmt.Printf("build image id: %s\n", buildImageID)
+	fmt.Printf("build image id: %s\ntag: %s\n", buildImageID, imageName)
 }

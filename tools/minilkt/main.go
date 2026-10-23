@@ -19,9 +19,9 @@ func main() {
 	forceBuild := false
 	buildCmd := &cobra.Command{
 		Use:  "build <pkg dir>",
-		Args: cobra.ExactArgs(1),
+		Args: cobra.MinimumNArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
-			build(args[0], forceBuild)
+			buildMulti(args, forceBuild)
 		},
 	}
 
