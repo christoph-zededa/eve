@@ -15,7 +15,7 @@ ENV LIBQRTR_VERSION=1.2.2
 ENV PICOCOM_COMMIT=1acf1ddabaf3576b4023c4f6f09c5a3e4b086fb8
 ENV LENOVO_WWAN_UNLOCK_COMMIT=1c0753d709f0efa57575c5a7491bc5456417b073
 
-ADD --keep-git-dir=true https://github.com/linux-mobile-broadband/libqrtr-glib.git#${LIBQRTR_VERSION} /libqrtr
+ADD https://github.com/linux-mobile-broadband/libqrtr-glib.git#${LIBQRTR_VERSION} /libqrtr
 WORKDIR /libqrtr
 RUN meson build --buildtype=release --prefix=/usr --sysconfdir=/etc --libdir=/usr/lib \
           -Dgtk_doc=false -Dintrospection=false && \
@@ -25,7 +25,7 @@ RUN meson build --buildtype=release --prefix=/usr --sysconfdir=/etc --libdir=/us
 # Register libqrtr-glib in the APK DB, mandatory for it to be included in the SBOM.
 RUN register-sbom-pkg.sh -n libqrtr-glib -v "${LIBQRTR_VERSION}" -l LGPL-2.1-only -u https://github.com/linux-mobile-broadband/libqrtr-glib
 
-ADD --keep-git-dir=true https://github.com/linux-mobile-broadband/libmbim.git#${LIBMBIM_VERSION} /libmbim
+ADD https://github.com/linux-mobile-broadband/libmbim.git#${LIBMBIM_VERSION} /libmbim
 WORKDIR /libmbim
 RUN meson build --buildtype=release --prefix=/usr --sysconfdir=/etc --libdir=/usr/lib \
           -Dbash_completion=false -Dintrospection=false -Dman=false && \
@@ -35,7 +35,7 @@ RUN meson build --buildtype=release --prefix=/usr --sysconfdir=/etc --libdir=/us
 # Register libmbim in the APK DB, mandatory for it to be included in the SBOM.
 RUN register-sbom-pkg.sh -n libmbim -v "${LIBMBIM_VERSION}" -l LGPL-2.1-only -u https://github.com/linux-mobile-broadband/libmbim
 
-ADD --keep-git-dir=true https://github.com/linux-mobile-broadband/libqmi.git#${LIBQMI_VERSION} /libqmi
+ADD https://github.com/linux-mobile-broadband/libqmi.git#${LIBQMI_VERSION} /libqmi
 WORKDIR /libqmi
 RUN meson build --buildtype=release --prefix=/usr --sysconfdir=/etc --libdir=/usr/lib \
           -Dbash_completion=false -Dintrospection=false -Dman=false && \
@@ -45,7 +45,7 @@ RUN meson build --buildtype=release --prefix=/usr --sysconfdir=/etc --libdir=/us
 # Register libqmi in the APK DB, mandatory for it to be included in the SBOM.
 RUN register-sbom-pkg.sh -n libqmi -v "${LIBQMI_VERSION}" -l LGPL-2.1-only -u https://github.com/linux-mobile-broadband/libqmi
 
-ADD --keep-git-dir=true https://github.com/linux-mobile-broadband/ModemManager.git#${MM_VERSION} /mm
+ADD https://github.com/linux-mobile-broadband/ModemManager.git#${MM_VERSION} /mm
 WORKDIR /mm
 RUN meson build --buildtype=release --prefix=/usr --sysconfdir=/etc --libdir=/usr/lib \
           -Dmbim=true -Dqmi=true -Dbash_completion=false -Dintrospection=false -Dpolkit=no \
@@ -56,7 +56,7 @@ RUN meson build --buildtype=release --prefix=/usr --sysconfdir=/etc --libdir=/us
 # Register ModemManager in the APK DB, mandatory for it to be included in the SBOM.
 RUN register-sbom-pkg.sh -n ModemManager -v "${MM_VERSION}" -l GPL-2.0-only -u https://gitlab.freedesktop.org/mobile-broadband/ModemManager
 
-ADD --keep-git-dir=true https://github.com/npat-efault/picocom.git#${PICOCOM_COMMIT} /picocom
+ADD https://github.com/npat-efault/picocom.git#${PICOCOM_COMMIT} /picocom
 WORKDIR /picocom
 # Need this patch to build with musl: https://github.com/npat-efault/picocom/commit/1acf1ddabaf3576b4023c4f6f09c5a3e4b086fb8
 RUN make -j "$(getconf _NPROCESSORS_ONLN)" && strip picocom && cp picocom /usr/bin/
@@ -65,7 +65,7 @@ RUN make -j "$(getconf _NPROCESSORS_ONLN)" && strip picocom && cp picocom /usr/b
 RUN register-sbom-pkg.sh -n picocom -v "${PICOCOM_COMMIT:0:8}" -l GPL-2.0-only -u https://github.com/npat-efault/picocom
 
 # Install FCC-unlock scripts/tools provided by device vendors
-ADD --keep-git-dir=true https://github.com/lenovo/lenovo-wwan-unlock.git#${LENOVO_WWAN_UNLOCK_COMMIT} /lenovo-wwan-unlock
+ADD https://github.com/lenovo/lenovo-wwan-unlock.git#${LENOVO_WWAN_UNLOCK_COMMIT} /lenovo-wwan-unlock
 WORKDIR /lenovo-wwan-unlock
 RUN cp libmbimtools.so /out/usr/lib/ && chmod 444 /out/usr/lib/libmbimtools.so
 RUN cp libdpr.so.2.0.1 /out/usr/lib/ && chmod 444 /out/usr/lib/libdpr.so.2.0.1

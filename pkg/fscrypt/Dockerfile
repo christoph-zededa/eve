@@ -17,7 +17,7 @@ RUN eve-alpine-deploy.sh
 ENV FSCRYPT_COMMIT=v0.3.4
 WORKDIR /go/src/github.com/google/fscrypt
 # hadolint ignore=DL3020
-ADD --keep-git-dir=true https://github.com/google/fscrypt.git#${FSCRYPT_COMMIT} .
+ADD https://github.com/google/fscrypt.git#${FSCRYPT_COMMIT} .
 COPY patch/* ./
 
 # hadolint ignore=SC1097

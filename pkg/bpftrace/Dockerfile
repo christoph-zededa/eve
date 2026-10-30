@@ -13,7 +13,7 @@ RUN ln -s /usr/lib/cmake/clang17 /usr/lib/cmake/clang
 # compile bcc from source as alpine's bcc crashes in bcc_elf_is_shared_obj(rel_path.c_str()); during bpftrace test
 WORKDIR /usr/src
 # bcc compilation process needs .git directory
-ADD --keep-git-dir=true https://github.com/iovisor/bcc.git#v0.27.0 /usr/src/bcc
+ADD https://github.com/iovisor/bcc.git#v0.27.0 /usr/src/bcc
 RUN register-sbom-pkg.sh -n bcc -v 0.27.0 -l Apache-2.0 -u https://github.com/iovisor/bcc
 RUN mkdir /usr/src/bcc/build
 WORKDIR /usr/src/bcc/build

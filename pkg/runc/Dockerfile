@@ -12,7 +12,7 @@ ENV BUILD_PKGS="bash gcc git libc-dev libseccomp-dev libseccomp-static linux-hea
 RUN eve-alpine-deploy.sh
 
 ENV RUNC_VERSION=v1.3.3
-ADD --keep-git-dir=true https://github.com/opencontainers/runc.git#${RUNC_VERSION} /runc
+ADD https://github.com/opencontainers/runc.git#${RUNC_VERSION} /runc
 WORKDIR /runc
 # The build linuxkit/runc uses, plus -s -w.
 RUN make static BUILDTAGS="seccomp" EXTRA_FLAGS="-buildmode pie" EXTRA_LDFLAGS="-s -w -extldflags \\\"-fno-PIC -static\\\""

@@ -36,7 +36,7 @@ ENV EDK_COMMIT 3d244c3b364bd4e21261380662186d064659161c
 FROM build-${TARGETARCH}-versions AS build-edk2
 
 WORKDIR /edk2
-ADD --keep-git-dir=true https://github.com/tianocore/edk2.git#${EDK_COMMIT} /edk2
+ADD https://github.com/tianocore/edk2.git#${EDK_COMMIT} /edk2
 
 RUN set -e ; [ ! -d /edk2 ] ||  [ ! -d /edk2-patches/${EDK_VERSION} ] || \
         for patch in /edk2-patches/${EDK_VERSION}/*.patch; do \
@@ -53,7 +53,7 @@ FROM build-edk2 AS build-amd64
 # 64-bit BDSM at offset 0xC0 — the classic upstream IgdAssignmentDxe
 # does not.
 ENV VFIOIGD_COMMIT 348860da70ca3a9ed6c1d95c30a97c757f54336b
-ADD --keep-git-dir=true https://github.com/tomitamoeko/VfioIgdPkg.git#${VFIOIGD_COMMIT} /edk2/VfioIgdPkg
+ADD https://github.com/tomitamoeko/VfioIgdPkg.git#${VFIOIGD_COMMIT} /edk2/VfioIgdPkg
 
 # VfioIgdPkg patches:
 #   /vfioigd-patches/        — always applied (toolchain regressions etc.)

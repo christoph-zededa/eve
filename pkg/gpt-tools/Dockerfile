@@ -69,7 +69,7 @@ RUN register-sbom-pkg.sh -n gptfdisk -v "${GPTFDISK_VERSION}" -l GPL-2.0-only -u
 #
 
 WORKDIR /
-ADD --keep-git-dir=true ${VBOOT_REPO}#${VBOOT_COMMIT} /vboot
+ADD ${VBOOT_REPO}#${VBOOT_COMMIT} /vboot
 
 WORKDIR /vboot
 RUN [ -d host/arch/riscv64 ] || cp -r host/arch/arm host/arch/riscv64

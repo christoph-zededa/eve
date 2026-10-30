@@ -19,7 +19,7 @@ SHELL ["/bin/bash", "-eo", "pipefail", "-c"]
 ENV UBOOT_VERSION=v2026.04
 ENV UBOOT_REPO=https://github.com/u-boot/u-boot.git
 # hadolint ignore=DL3020
-ADD --keep-git-dir ${UBOOT_REPO}#${UBOOT_VERSION} /u-boot
+ADD ${UBOOT_REPO}#${UBOOT_VERSION} /u-boot
 
 WORKDIR /u-boot
 COPY patches /tmp/patches

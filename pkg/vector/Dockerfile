@@ -41,7 +41,7 @@ RUN echo "Cargo target: $CARGO_BUILD_TARGET"
 # building the final image
 FROM toolchain AS builder
 ARG VECTOR_FEATURES
-ADD --keep-git-dir=true https://github.com/vectordotdev/vector.git#v0.54.0 /app
+ADD https://github.com/vectordotdev/vector.git#v0.54.0 /app
 
 # The vendored OpenSSL embeds SOURCE_DATE_EPOCH, or else the build time, in
 # its "built on:" string; use the commit time of the tag. Drop .git so

@@ -15,7 +15,7 @@ RUN eve-alpine-deploy.sh
 COPY patches /patches
 
 ENV OPTEE_CLIENT_VERSION=4.9.0
-ADD --keep-git-dir=true https://github.com/OP-TEE/optee_client.git#${OPTEE_CLIENT_VERSION} /optee_client
+ADD https://github.com/OP-TEE/optee_client.git#${OPTEE_CLIENT_VERSION} /optee_client
 
 WORKDIR /optee_client
 
