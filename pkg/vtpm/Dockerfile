@@ -49,7 +49,7 @@ RUN register-sbom-pkg.sh -n swtpm -v 732bbd6a -l BSD-3-Clause \
 
 # build tpm2-tss, it is needed by tpm2-tools
 WORKDIR /tpm2-tss
-ADD --keep-git-dir=true https://github.com/tpm2-software/tpm2-tss.git#4.0.1 /tpm2-tss
+ADD https://github.com/tpm2-software/tpm2-tss.git#4.0.1 /tpm2-tss
 RUN ./bootstrap && \
     ./configure --disable-dependency-tracking && \
     make -j$(nproc) && \
@@ -63,7 +63,7 @@ RUN register-sbom-pkg.sh -n tpm2-tss -v 4.0.1 -l BSD-2-Clause \
 
 # build tpm2-tools, it is needed by ptpm
 WORKDIR /tpm2-tools
-ADD --keep-git-dir=true https://github.com/tpm2-software/tpm2-tools.git#5.5 /tpm2-tools
+ADD https://github.com/tpm2-software/tpm2-tools.git#5.5 /tpm2-tools
 COPY patches/ /patches/
 RUN for patch in /patches/*.patch; do \
     echo "Applying $patch"; \

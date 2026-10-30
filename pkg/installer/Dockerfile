@@ -57,11 +57,11 @@ RUN go build -o /out/vmcap ./vmcap
 
 WORKDIR /out
 
-ADD --keep-git-dir=true https://github.com/tpm2-software/tpm2-tools.git#5.5 /out/tpm2-tools-5.5
+ADD https://github.com/tpm2-software/tpm2-tools.git#5.5 /out/tpm2-tools-5.5
 
 # build tpm2-tss, it is needed by tpm2-tools
 WORKDIR /tpm2-tss
-ADD --keep-git-dir=true https://github.com/tpm2-software/tpm2-tss.git#4.0.1 /tpm2-tss
+ADD https://github.com/tpm2-software/tpm2-tss.git#4.0.1 /tpm2-tss
 RUN ./bootstrap && \
     ./configure --disable-dependency-tracking && \
     make -j$(nproc) && \

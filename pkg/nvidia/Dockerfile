@@ -64,7 +64,7 @@ RUN tar -xjf /jetson_linux.tbz2
 
 # Build nvidia-ctk
 ENV NVIDIA_CONTAINER_TOOLKIT_REV=v1.16.2
-ADD --keep-git-dir=true https://github.com/NVIDIA/nvidia-container-toolkit.git#${NVIDIA_CONTAINER_TOOLKIT_REV} /nvct
+ADD https://github.com/NVIDIA/nvidia-container-toolkit.git#${NVIDIA_CONTAINER_TOOLKIT_REV} /nvct
 
 WORKDIR /nvct
 
