@@ -150,7 +150,7 @@ RUN cat /patches/*.patch /patches/"$(uname -m)"/*.patch | patch -p1
 ENV SEABIOS_UPSTREAM_URL /seabios.git
 # this revision should be kept in sync with the XEN_VERSION by reading `Config.mk` in the xen source
 ENV SEABIOS_UPSTREAM_REVISION rel-1.16.3
-ADD git://xenbits.xen.org/seabios.git#${SEABIOS_UPSTREAM_REVISION} ${SEABIOS_UPSTREAM_URL}
+ADD https://xenbits.xen.org/git-http/seabios.git#${SEABIOS_UPSTREAM_REVISION} ${SEABIOS_UPSTREAM_URL}
 # we need this because it will complain about ambiguous refs
 RUN git config --global core.warnambiguousrefs false
 
