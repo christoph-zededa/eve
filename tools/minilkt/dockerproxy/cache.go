@@ -32,7 +32,13 @@ func (c *cache) path(req *http.Request) string {
 	for _, h := range volatileHeaders {
 		headers.Del(h)
 	}
-	id := fmt.Sprintf("%s %s %+v", req.Method, req.URL, headers)
+	var bodyHash string
+	if req.Body != nil {
+		var tmpBody *tmpFileReadCloser
+		tmpBody, bodyHash = newTmpFileReadCloser(req.Body)
+		req.Body = tmpBody
+	}
+	id := fmt.Sprintf("%s %s %+v %s", req.Method, req.URL, headers, bodyHash)
 	sum := md5.Sum([]byte(id))
 
 	dir := c.dir
@@ -49,11 +55,10 @@ func (c *cache) path(req *http.Request) string {
 // store writes resp to the cache and consumes its body. An existing entry is
 // kept. The entry is assembled in a temporary directory and renamed into
 // place, so an interrupted store leaves nothing that looks like an entry.
-func (c *cache) store(resp *http.Response) error {
+func (c *cache) store(entry string, resp *http.Response) error {
 	if resp.Body != nil {
 		defer resp.Body.Close()
 	}
-	entry := c.path(resp.Request)
 	if _, err := os.Stat(entry); err == nil {
 		return nil
 	}
@@ -106,8 +111,7 @@ func writeEntry(dir string, resp *http.Response) error {
 // open returns the cached response for req, or nil when there is none. The
 // body reads the entry's body file; HEAD requests and empty entries get an
 // empty body.
-func (c *cache) open(req *http.Request) (*http.Response, error) {
-	entry := c.path(req)
+func (c *cache) open(entry string, req *http.Request) (*http.Response, error) {
 	headers, err := os.ReadFile(filepath.Join(entry, "headers.json"))
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
@@ -115,6 +119,7 @@ func (c *cache) open(req *http.Request) (*http.Response, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	resp := &http.Response{
 		Request:    req,
 		Proto:      "HTTP/1.1",

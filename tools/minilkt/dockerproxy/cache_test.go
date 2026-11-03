@@ -82,7 +82,7 @@ func TestCacheKeyIgnoresVolatileHeaders(t *testing.T) {
 func TestCacheStoreAndOpenRoundTrip(t *testing.T) {
 	c := &cache{dir: t.TempDir()}
 	req := request(t, "GET", "https://example.com/file", nil)
-	if resp, err := c.open(req); err != nil || resp != nil {
+	if resp, err := c.open(c.path(req), req); err != nil || resp != nil {
 		t.Fatalf("open before store = %v, %v; want nil, nil", resp, err)
 	}
 	upstream := &http.Response{
@@ -92,10 +92,10 @@ func TestCacheStoreAndOpenRoundTrip(t *testing.T) {
 		ContentLength: -1,
 		Request:       req,
 	}
-	if err := c.store(upstream); err != nil {
+	if err := c.store(c.path(req), upstream); err != nil {
 		t.Fatal(err)
 	}
-	resp, err := c.open(req)
+	resp, err := c.open(c.path(req), req)
 	if err != nil || resp == nil {
 		t.Fatalf("open after store = %v, %v", resp, err)
 	}
@@ -123,11 +123,11 @@ func TestCacheStoreKeepsFirstEntry(t *testing.T) {
 	req := request(t, "GET", "https://example.com/file", nil)
 	for _, body := range []string{"first", "second"} {
 		resp := &http.Response{StatusCode: 200, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(body)), Request: req}
-		if err := c.store(resp); err != nil {
+		if err := c.store(c.path(req), resp); err != nil {
 			t.Fatal(err)
 		}
 	}
-	resp, err := c.open(req)
+	resp, err := c.open(c.path(req), req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -142,7 +142,7 @@ func TestCacheStoreLeavesNoTemporaryDirectories(t *testing.T) {
 	c := &cache{dir: dir}
 	req := request(t, "GET", "https://example.com/file", nil)
 	resp := &http.Response{StatusCode: 200, Header: http.Header{}, Body: io.NopCloser(strings.NewReader("x")), Request: req}
-	if err := c.store(resp); err != nil {
+	if err := c.store(c.path(req), resp); err != nil {
 		t.Fatal(err)
 	}
 	entry := c.path(req)
@@ -167,10 +167,10 @@ func TestCacheOpenHeadUsesStoredContentLength(t *testing.T) {
 		Body:       http.NoBody,
 		Request:    req,
 	}
-	if err := c.store(resp); err != nil {
+	if err := c.store(c.path(req), resp); err != nil {
 		t.Fatal(err)
 	}
-	got, err := c.open(req)
+	got, err := c.open(c.path(req), req)
 	if err != nil || got == nil {
 		t.Fatalf("open = %v, %v", got, err)
 	}
