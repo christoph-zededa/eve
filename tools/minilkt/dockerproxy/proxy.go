@@ -203,14 +203,22 @@ func (p *Proxy) handler() http.Handler {
 // reqState travels from the request to the response handler in ctx.UserData.
 type reqState struct {
 	fromCache bool
-	header    http.Header // request headers at lookup time
+	entry     string // cache entry, settled before the request went upstream
 }
 
 func (p *Proxy) onRequest(req *http.Request, ctx *goproxy.ProxyCtx) (*http.Request, *http.Response) {
 	if p.isExcluded(req) {
 		return req, nil
 	}
-	resp, err := p.cache.open(req)
+	// if req.Method != http.MethodGet && req.Method != http.MethodHead {
+	// 	p.logf("cache ignore  %s %s", req.Method, req.URL)
+	// 	return req, nil
+	// }
+	// path consumes the body once, here. After RoundTrip the body belongs to
+	// the transport, which closes it on its own goroutine, so the entry is
+	// carried over instead of being computed again from resp.Request.
+	entry := p.cache.path(req)
+	resp, err := p.cache.open(entry, req)
 	if err != nil {
 		log.Printf("dockerproxy: cache lookup for %s %s: %v", req.Method, req.URL, err)
 		return req, nil
@@ -221,7 +229,7 @@ func (p *Proxy) onRequest(req *http.Request, ctx *goproxy.ProxyCtx) (*http.Reque
 		return req, resp
 	}
 	p.logf("cache miss %s %s", req.Method, req.URL)
-	ctx.UserData = &reqState{header: req.Header.Clone()}
+	ctx.UserData = &reqState{entry: entry}
 	return req, nil
 }
 
@@ -239,13 +247,10 @@ func (p *Proxy) onResponse(resp *http.Response, ctx *goproxy.ProxyCtx) *http.Res
 	if resp == nil || resp.Request == nil || !ok || st.fromCache {
 		return resp
 	}
-	// The entry must be keyed like the lookup that missed, whatever happened
-	// to the request headers on the way out.
-	resp.Request.Header = st.header
-	if err := p.cache.store(resp); err != nil {
+	if err := p.cache.store(st.entry, resp); err != nil {
 		return p.failed(resp.Request, "store", err)
 	}
-	cached, err := p.cache.open(resp.Request)
+	cached, err := p.cache.open(st.entry, resp.Request)
 	if err == nil && cached == nil {
 		err = errors.New("entry missing right after store")
 	}
