@@ -210,6 +210,8 @@ func (p *Proxy) onRequest(req *http.Request, ctx *goproxy.ProxyCtx) (*http.Reque
 	if p.isExcluded(req) {
 		return req, nil
 	}
+	req = req.WithContext(context.WithoutCancel(req.Context())) // needed for busybox wget
+
 	// if req.Method != http.MethodGet && req.Method != http.MethodHead {
 	// 	p.logf("cache ignore  %s %s", req.Method, req.URL)
 	// 	return req, nil
