@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"minilkt/dockerproxy"
+	"net"
 	"os"
 	"path/filepath"
 	"slices"
@@ -15,11 +16,26 @@ import (
 	"go.podman.io/buildah"
 	"go.podman.io/buildah/define"
 	"go.podman.io/buildah/imagebuildah"
+	"go.podman.io/image/v5/docker/reference"
 	"go.podman.io/image/v5/types"
 	"go.podman.io/storage"
 	"go.podman.io/storage/pkg/homedir"
 	"go.podman.io/storage/pkg/unshare"
 )
+
+const orgImageAdditionPrefix = "org.minilkt.additionalimage"
+
+// openStore opens the image store that build writes to and list reads.
+func openStore() (storage.Store, error) {
+	opts, err := storage.DefaultStoreOptions()
+	if err != nil {
+		return nil, err
+	}
+	if err := setStoreOptions(&opts); err != nil {
+		return nil, err
+	}
+	return storage.GetStore(opts)
+}
 
 // setStoreOptions makes the image store usable by an unprivileged user.
 func setStoreOptions(opts *storage.StoreOptions) error {
@@ -87,7 +103,7 @@ func unreadableStore(opt string) bool {
 	return false
 }
 
-func buildMulti(ds []string, forceRebuild bool) {
+func buildMulti(ds []string, forceRebuild, dryBuild, keepGoing bool) {
 	deps := map[string][]string{}
 	image2pkgHashes := map[string]string{}
 	image2path := map[string]string{}
@@ -123,6 +139,38 @@ func buildMulti(ds []string, forceRebuild bool) {
 		panic(err)
 	}
 
+	dataDir := "/home/christoph/.minilkt"
+	p, err := dockerproxy.New(filepath.Join(dataDir, "proxy"))
+	if err != nil {
+		panic(err)
+	}
+	p.Verbose = true
+	httpsProxyPort, err := getFreePort()
+	if err != nil {
+		panic(err)
+	}
+	if err := p.Start(uint16(httpsProxyPort)); err != nil {
+		panic(err)
+	}
+	defer p.Stop()
+
+	certFile := p.CertPEM
+	os.Setenv("SSL_CERT_FILE", certFile)
+
+	proxyURL := fmt.Sprintf("http://127.0.0.1:%d", httpsProxyPort)
+
+	os.Setenv("HTTPS_PROXY", proxyURL)
+	os.Setenv("HTTP_PROXY", proxyURL)
+	os.Setenv("https_proxy", proxyURL)
+	os.Setenv("http_proxy", proxyURL)
+	os.Setenv("NO_PROXY", "localhost,127.0.0.1")
+
+	setupGit(dataDir, certFile)
+	sysCtx, err := registriesConf(dataDir)
+	if err != nil {
+		panic(err)
+	}
+
 	for _, image := range order {
 		replaceImage := map[string]string{}
 		d, found := image2path[image]
@@ -146,51 +194,59 @@ func buildMulti(ds []string, forceRebuild bool) {
 			continue
 		}
 
-		fmt.Printf(">>>>> %s\n", d)
-		fmt.Printf("\t%+v\n", replaceImage)
-		build(d, replaceImage, forceRebuild)
-		fmt.Printf("<<<<<<<<<<<<<\n")
+		// fmt.Printf(">>>>> %s\n", d)
+		// fmt.Printf("\t%+v\n", replaceImage)
+		err := build(d, replaceImage, httpsProxyPort, p.CertPEM, sysCtx, forceRebuild, dryBuild)
+		if err != nil {
+			var lastErr error
+			for {
+				unWrapErr := errors.Unwrap(err)
+				if unWrapErr == nil {
+					break
+				}
+				lastErr = unWrapErr
+			}
+			if lastErr != nil {
+				panic(err)
+			}
+			if !keepGoing {
+				panic(err)
+			} else {
+				fmt.Printf("!!!!! building %s failed: %T -> %v\n", d, lastErr, lastErr)
+			}
+		}
+		// fmt.Printf("<<<<<<<<<<<<<\n")
 	}
 }
 
-func build(d string, replaceImage map[string]string, forceRebuild bool) {
-	unshare.MaybeReexecUsingUserNamespace(false)
-
-	dataDir := "/home/christoph/.minilkt"
-	p, err := dockerproxy.New(filepath.Join(dataDir, "proxy"))
-	p.Verbose = true
-	if err := p.Start(8080); err != nil {
-		panic(err)
+func getFreePort() (port int, err error) {
+	var a *net.TCPAddr
+	if a, err = net.ResolveTCPAddr("tcp", "localhost:0"); err == nil {
+		var l *net.TCPListener
+		if l, err = net.ListenTCP("tcp", a); err == nil {
+			defer l.Close()
+			return l.Addr().(*net.TCPAddr).Port, nil
+		}
 	}
-	defer p.Stop()
+	return
+}
 
-	certFile := p.CertPEM
-	os.Setenv("SSL_CERT_FILE", certFile)
-
-	os.Setenv("HTTPS_PROXY", "http://localhost:8080")
-	os.Setenv("HTTP_PROXY", "http://localhost:8080")
-	os.Setenv("NO_PROXY", "localhost,127.0.0.1")
+func build(d string, replaceImage map[string]string, httpsProxyPort int, certFile string, sysCtx *types.SystemContext, forceRebuild, dryBuild bool) error {
+	fmt.Printf("----- building %s ------\n", d)
+	unshare.MaybeReexecUsingUserNamespace(false)
 
 	dockerfile := filepath.Join(d, "Dockerfile")
 	// parse(dockerfile)
 	dfImages, err := DockerfileImages(dockerfile, map[string]string{})
 	if err != nil {
-		panic(err)
+		return fmt.Errorf("parsing dockerfile %s failed: %v", dockerfile, err)
 	}
 
 	fmt.Printf("dfImages: %+v\n", dfImages)
 
-	buildStoreOptions, err := storage.DefaultStoreOptions()
+	buildStore, err := openStore()
 	if err != nil {
-		panic(err)
-	}
-	if err := setStoreOptions(&buildStoreOptions); err != nil {
-		panic(err)
-	}
-
-	buildStore, err := storage.GetStore(buildStoreOptions)
-	if err != nil {
-		panic(err)
+		return fmt.Errorf("open image store failed: %v", err)
 	}
 	defer func() {
 		if _, err := buildStore.Shutdown(false); err != nil {
@@ -200,7 +256,7 @@ func build(d string, replaceImage map[string]string, forceRebuild bool) {
 		}
 	}()
 
-	hash, err := PkgHash(d)
+	imageTagHash, err := PkgHash(d)
 	if err != nil {
 		panic(err)
 	}
@@ -208,53 +264,187 @@ func build(d string, replaceImage map[string]string, forceRebuild bool) {
 	if err != nil {
 		panic(err)
 	}
-	imageName := fmt.Sprintf("%s/%s:%s", by.Org, by.Image, hash)
-	fmt.Printf("image is: %s\n", imageName)
+	imageName := fmt.Sprintf("%s/%s:%s", by.Org, by.Image, imageTagHash)
+	fullName := qualified(imageName)
+	fmt.Printf("image is: %s\n", fullName)
 
+	// Every image the Dockerfile names reaches buildah fully qualified, so no
+	// short name is ever resolved against the host's registries.conf.
 	additionalBuildCtx := map[string]*define.AdditionalBuildContext{}
 	for k, v := range replaceImage {
 		additionalBuildCtx[k] = &define.AdditionalBuildContext{
 			IsImage: true,
-			Value:   v,
+			Value:   qualified(v),
 		}
+	}
+	for _, img := range dfImages {
+		if _, replaced := additionalBuildCtx[img]; !replaced {
+			additionalBuildCtx[img] = &define.AdditionalBuildContext{
+				IsImage: true,
+				Value:   qualified(img),
+			}
+		}
+	}
+	newImageAnnotations := make([]string, 0)
+	for _, v := range replaceImage {
+		addTag := fmt.Sprintf("%s.%s", orgImageAdditionPrefix, v)
+		newImageAnnotations = append(newImageAnnotations, addTag)
+
 	}
 	buildOptions := define.BuildOptions{
 		ContextDirectory: d,
 		NamespaceOptions: []define.NamespaceOption{
 			{Name: string(specs.NetworkNamespace), Host: true},
-			{Name: string(specs.NetworkNamespace), Path: "pasta:--splice-only,-T,8080"},
+			// seems pasta is suffering from an epollhup bug with busybox's wget
+			// 			// {Name: string(specs.NetworkNamespace), Path: fmt.Sprintf("pasta:--splice-only,-T,%d", httpsProxyPort)},
 		},
 		RemoveIntermediateCtrs: false,
 		Layers:                 true,
-		OutputFormat:           define.OCIv1ImageManifest,
-		PullPolicy:             define.PullIfMissing,
-		CommonBuildOpts:        &define.CommonBuildOptions{HTTPProxy: true},
+		// OutputFormat:           define.OCIv1ImageManifest,
+		OutputFormat:    define.Dockerv2ImageManifest,
+		PullPolicy:      define.PullIfMissing,
+		SystemContext:   sysCtx,
+		CommonBuildOpts: &define.CommonBuildOptions{HTTPProxy: true},
 		TransientMounts: []string{
 			certFile + ":/etc/ssl/cert.pem:ro,z",
 			certFile + ":/usr/local/share/ca-certificates/proxy-ca.crt:ro,z",
 		},
 		AdditionalBuildContexts: additionalBuildCtx,
 		// AdditionalTags:          []string{imageName},
-		Output: imageName,
+		Labels: newImageAnnotations,
+		Output: fullName,
+		Args: map[string]string{
+			"TARGETARCH": "amd64",
+			"BUILDARCH":  "amd64",
+		},
 	}
-	panic("additionalBuildCtx does not make build again on change")
 	if forceRebuild {
 		buildOptions.NoCache = true
 	}
 
 	if !forceRebuild {
-		imageID, err := buildah.Pull(context.TODO(), imageName, buildah.PullOptions{
-			SystemContext: &types.SystemContext{},
+		imageID, err := buildah.Pull(context.TODO(), fullName, buildah.PullOptions{
+			SystemContext: sysCtx,
 			Store:         buildStore,
 		})
-		if err == nil {
+		if err != nil {
+			fmt.Printf("pull failed (proxy port: %d): %T %+v\n", httpsProxyPort, err, err)
+			// TODO: removeme
+			_, err := buildStore.Image(fullName)
+			if err == nil {
+				panic("cannot pull, but image is there, please fix")
+			}
+			// could not pull image, therefore we cannot lookup extra annotations
+			buildOptions.NoCache = true
+		} else {
 			fmt.Printf("pull image id: %s\n", imageID)
-			return
+			// return
+			img, err := buildStore.Image(imageID)
+			if err != nil {
+				panic(err)
+			}
+			oldImageAnnotations := annotationList(imageLabels(buildStore, img.ID))
+
+			if compareAnnotations(oldImageAnnotations, newImageAnnotations) {
+				fmt.Printf("Image (%s) already built\n", fullName)
+				return nil
+			} else {
+				fmt.Printf("Image needs to be rebuilt as dependency package(s) changed\n")
+				buildOptions.NoCache = true
+			}
 		}
 	}
+
+	if dryBuild {
+		fmt.Println("dry build selected")
+		return nil
+	}
+	// TODO: inject TARGETARCH and BUILDARCH env variables
 	buildImageID, _, err := imagebuildah.BuildDockerfiles(context.TODO(), buildStore, buildOptions, dockerfile)
+	if err != nil {
+		return fmt.Errorf("building '%s' failed (%T):\n%+v", d, err, err)
+	}
+	fmt.Printf("built image id: %s\n\ttag: %s\n\tannotations: %+v\n", buildImageID, imageName, newImageAnnotations)
+
+	return nil
+}
+
+// return true if same
+func compareAnnotations(old, new []string) bool {
+	if len(old) == 0 && len(new) == 0 {
+		return true
+	}
+
+	new = slices.DeleteFunc(new, func(line string) bool {
+		return !strings.HasPrefix(line, orgImageAdditionPrefix)
+	})
+	old = slices.DeleteFunc(old, func(line string) bool {
+		return !strings.HasPrefix(line, orgImageAdditionPrefix)
+	})
+
+	fmt.Println("old image annotations:")
+	for _, annotation := range old {
+		fmt.Printf("- old additional tag: %s\n", annotation)
+	}
+	fmt.Println("new image annotations:")
+	for _, annotation := range new {
+		fmt.Printf("- new additional tag: %s\n", annotation)
+	}
+
+	slices.Sort(old)
+	slices.Sort(new)
+
+	return slices.Equal(old, new)
+}
+
+// qualified returns name as a full reference with Docker's defaults, so
+// lfedge/eve-alpine:x becomes docker.io/lfedge/eve-alpine:x and alpine becomes
+// docker.io/library/alpine:latest. It panics on an invalid reference, like
+// splitImage.
+func qualified(name string) string {
+	named, err := reference.ParseNormalizedNamed(name)
 	if err != nil {
 		panic(err)
 	}
-	fmt.Printf("build image id: %s\ntag: %s\n", buildImageID, imageName)
+	return reference.TagNameOnly(named).String()
+}
+
+func setupGit(dataDir, certFile string) {
+	var err error
+
+	gitconfig := `
+#!/bin/sh
+# minilkt: give buildah's git ADD (init, fetch --depth=1 <ref>, checkout
+# FETCH_HEAD) what BuildKit's ADD <git url> provides: a tag or branch ref is
+# kept as a tag, a commit ref gets the full history and all tags, so git
+# describe works either way, and submodules are initialized.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
+if [ -z "$(git rev-parse --show-superproject-working-tree)" ]; then
+        gitdir=$(git rev-parse --git-dir)
+        ref=$(sed -n "s/^[0-9a-f]*\t[^\t]*\t\(tag\|branch\) '\([^']*\)' of .*/\2/p" "$gitdir/FETCH_HEAD" 2>/dev/null | head -n 1)
+        if [ -n "$ref" ]; then
+                git rev-parse -q --verify "$ref^{commit}" >/dev/null 2>&1 || git tag "$ref" HEAD
+        elif [ -f "$gitdir/FETCH_HEAD" ]; then
+                unshallow=
+                [ -f "$gitdir/shallow" ] && unshallow=--unshallow
+                git fetch --quiet --tags $unshallow origin "$(git rev-parse HEAD)"
+        fi
+fi
+exec git submodule update --init --recursive --depth=1
+	`
+	err = os.MkdirAll(filepath.Join(dataDir, "githooks"), 0o700)
+	if err != nil {
+		panic(err)
+	}
+	gitPostCheckoutScriptPath := filepath.Join(dataDir, "githooks", "post-checkout")
+	err = os.WriteFile(gitPostCheckoutScriptPath, []byte(gitconfig), 0o700)
+	if err != nil {
+		panic(err)
+	}
+
+	os.Setenv("GIT_CONFIG_COUNT", "1")
+	os.Setenv("GIT_CONFIG_KEY_0", "core.hooksPath")
+	os.Setenv("GIT_CONFIG_VALUE_0", filepath.Join(dataDir, "githooks"))
+	os.Setenv("GIT_CONFIG_GLOBAL", "/dev/null") // keep developer URL rewrites and helpers out of ADD clones
+	os.Setenv("GIT_SSL_CAINFO", certFile)       // git ignores SSL_CERT_FILE; trust the proxy CA explicitly
 }

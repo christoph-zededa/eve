@@ -3,6 +3,7 @@ module minilkt
 go 1.26.5
 
 require (
+	github.com/docker/go-units v0.5.0
 	github.com/elazarl/goproxy v1.8.2
 	github.com/fsouza/go-dockerclient v1.13.2
 	github.com/go-git/go-billy/v5 v5.9.0
@@ -48,7 +49,6 @@ require (
 	github.com/docker/distribution v2.8.3+incompatible // indirect
 	github.com/docker/docker-credential-helpers v0.9.8 // indirect
 	github.com/docker/go-connections v0.8.1 // indirect
-	github.com/docker/go-units v0.5.0 // indirect
 	github.com/emirpasic/gods v1.18.1 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
 	github.com/fsnotify/fsnotify v1.10.1 // indirect
