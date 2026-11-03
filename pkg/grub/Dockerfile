@@ -57,6 +57,7 @@ RUN mkdir /grub-lib
 
 ENV GRUB_REPO=https://gitlab.freedesktop.org/gnu-grub/grub.git
 ADD ${GRUB_REPO}#${GRUB_COMMIT} /grub
+RUN rm -Rf /grub/.git
 ENV GNULIB_REVISION=9f48fb992a3d7e96610c4ce8be969cff2d61a01b
 ADD https://github.com/coreutils/gnulib.git#${GNULIB_REVISION} /gnulib
 
