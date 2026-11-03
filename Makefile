@@ -504,11 +504,11 @@ ifneq ($(PLATFORM),ai-generic)
         PKGS_PLATFORM_EXCLUDE=|glibc$$
 endif
 ifeq ($(HV),k)
-        PKGS_$(ZARCH)=$(shell find pkg -maxdepth 1 -type d | grep -Ev "eve|alpine|sources$$$(PKGS_PLATFORM_EXCLUDE)")
+        PKGS_$(ZARCH)=$(shell find pkg -maxdepth 1 -mindepth 1 -type d | grep -Ev "eve|alpine|sources$$$(PKGS_PLATFORM_EXCLUDE)")
         ROOTFS_MAXSIZE_MB=10240
 else
         #kube container will not be in non-k builds
-        PKGS_$(ZARCH)=$(shell find pkg -maxdepth 1 -type d | grep -Ev "eve|alpine|sources|kube|external-boot-image$$$(PKGS_PLATFORM_EXCLUDE)")
+        PKGS_$(ZARCH)=$(shell find pkg -maxdepth 1 -mindepth 1 -type d | grep -Ev "eve|alpine|sources|kube|external-boot-image$$$(PKGS_PLATFORM_EXCLUDE)")
         # nvidia platform requires more space
         ifeq (, $(findstring nvidia,$(PLATFORM)))
             ROOTFS_MAXSIZE_MB=290
@@ -536,7 +536,7 @@ PKGS=pkg/alpine $(PKGS_$(ZARCH))
 # eve-alpine-base is bootstrap image for eve-alpine
 # to update please see https://github.com/lf-edge/eve/blob/master/docs/BUILD.md#how-to-update-eve-alpine-package
 # if you want to bootstrap eve-alpine again, uncomment the line below
-# PKGS:=pkg/alpine-base $(PKGS)
+PKGS:=pkg/alpine-base $(PKGS)
 
 # these are the packages that, when built, also need to be loaded into docker
 # if you need a pkg to be loaded into docker, in addition to the lkt cache, add it here
@@ -1078,6 +1078,10 @@ $(LIVE).parallels: $(LIVE).raw
 pkgs: RESCAN_DEPS=
 pkgs: $(LINUXKIT) $(PKGS) $(LK_POSSIBLE_BUILD_ARG_TARGETS)
 	@echo Done building packages
+newpkgs: $(LINUXKIT)
+	./tools/minilkt/minilkt build $(PKGS)
+	./tools/minilkt/minilkt i e2l
+	@echo Done building packages $(PKGS)
 
 # No-op target for get-deps which looks at
 # external-boot-image and sees a dep for eve-kernel
