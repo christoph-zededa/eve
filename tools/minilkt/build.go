@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"text/template"
 
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 	"go.podman.io/buildah"
@@ -24,6 +26,7 @@ import (
 )
 
 const orgImageAdditionPrefix = "org.minilkt.additionalimage"
+const dataDir = "/home/christoph/.minilkt"
 
 // openStore opens the image store that build writes to and list reads.
 func openStore() (storage.Store, error) {
@@ -139,7 +142,6 @@ func buildMulti(ds []string, forceRebuild, dryBuild, keepGoing bool) {
 		panic(err)
 	}
 
-	dataDir := "/home/christoph/.minilkt"
 	p, err := dockerproxy.New(filepath.Join(dataDir, "proxy"))
 	p.Verbose = true
 	httpsProxyPort, err := getFreePort()
@@ -228,6 +230,18 @@ func getFreePort() (port int, err error) {
 	return
 }
 
+func buildYamlTag(by *BuildYAML, hash string) string {
+	tmpl, err := template.New("tag").Parse(by.Tag)
+	if err != nil {
+		return hash
+	}
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, map[string]string{"Hash": hash}); err != nil {
+		return hash
+	}
+	return buf.String()
+}
+
 func build(d string, replaceImage map[string]string, httpsProxyPort int, certFile string, sysCtx *types.SystemContext, forceRebuild, dryBuild bool) error {
 	fmt.Printf("----- building %s ------\n", d)
 	unshare.MaybeReexecUsingUserNamespace(false)
@@ -261,6 +275,9 @@ func build(d string, replaceImage map[string]string, httpsProxyPort int, certFil
 	if err != nil {
 		panic(err)
 	}
+	if by.Tag != "" {
+		imageTagHash = buildYamlTag(by, imageTagHash)
+	}
 	imageName := fmt.Sprintf("%s/%s:%s", by.Org, by.Image, imageTagHash)
 	fullName := qualified(imageName)
 	fmt.Printf("image is: %s\n", fullName)
@@ -288,6 +305,14 @@ func build(d string, replaceImage map[string]string, httpsProxyPort int, certFil
 		newImageAnnotations = append(newImageAnnotations, addTag)
 
 	}
+	buildArgs := by.buildArgs()
+	if len(buildArgs) > 0 {
+		fmt.Printf("adding extra build args: %+v\n", buildArgs)
+	}
+
+	buildArgs["TARGETARCH"] = "amd64"
+	buildArgs["BUILDARCH"] = "amd64"
+
 	buildOptions := define.BuildOptions{
 		ContextDirectory: d,
 		NamespaceOptions: []define.NamespaceOption{
@@ -310,10 +335,7 @@ func build(d string, replaceImage map[string]string, httpsProxyPort int, certFil
 		// AdditionalTags:          []string{imageName},
 		Labels: newImageAnnotations,
 		Output: fullName,
-		Args: map[string]string{
-			"TARGETARCH": "amd64",
-			"BUILDARCH":  "amd64",
-		},
+		Args:   buildArgs,
 	}
 	if forceRebuild {
 		buildOptions.NoCache = true
@@ -379,6 +401,13 @@ func compareAnnotations(old, new []string) bool {
 		return !strings.HasPrefix(line, orgImageAdditionPrefix)
 	})
 
+	slices.Sort(old)
+	slices.Sort(new)
+
+	if slices.Equal(old, new) {
+		return true
+	}
+
 	fmt.Println("old image annotations:")
 	for _, annotation := range old {
 		fmt.Printf("- old additional tag: %s\n", annotation)
@@ -388,10 +417,7 @@ func compareAnnotations(old, new []string) bool {
 		fmt.Printf("- new additional tag: %s\n", annotation)
 	}
 
-	slices.Sort(old)
-	slices.Sort(new)
-
-	return slices.Equal(old, new)
+	return false
 }
 
 // qualified returns name as a full reference with Docker's defaults, so

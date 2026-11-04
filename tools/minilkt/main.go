@@ -139,8 +139,20 @@ func main() {
 			}
 		},
 	}
+	export2LktCacheCmd := &cobra.Command{
+		Use:     "export-to-linuxkit",
+		Short:   "export images to the linuxkit cache",
+		Aliases: []string{"export2linukit", "e2l", "e2lk", "e2lkt", "export2lkt"},
+		Args:    cobra.NoArgs,
+		Run: func(cmd *cobra.Command, args []string) {
+			err := exportAllToLinuxkitCache()
+			if err != nil {
+				panic(err)
+			}
+		},
+	}
 
-	imageCmd.AddCommand(pruneCmd, listCmd, deleteCmd)
+	imageCmd.AddCommand(pruneCmd, listCmd, deleteCmd, export2LktCacheCmd)
 
 	rootCmd.AddCommand(proxyCmd, buildCmd, imageCmd)
 

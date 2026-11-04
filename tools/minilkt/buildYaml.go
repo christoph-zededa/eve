@@ -275,3 +275,16 @@ func (p *Pkg) Ref() string {
 	}
 	return p.Build.ImageName() + ":" + tag
 }
+
+// buildArgsOf turns a build.yml's KEY=VALUE list into a map.
+func (b *BuildYAML) buildArgs() map[string]string {
+	args := map[string]string{}
+	for _, kv := range b.BuildArgs {
+		k, v, ok := strings.Cut(kv, "=")
+		if !ok {
+			return nil
+		}
+		args[k] = v
+	}
+	return args
+}
