@@ -22,9 +22,10 @@ func request(t *testing.T, method, rawURL string, header http.Header) *http.Requ
 	return &http.Request{Method: method, URL: u, Header: header}
 }
 
-// The paths below were produced by the original dockerproxy cache code, so an
-// existing cache directory keeps working. Quirks such as the unpadded hex
-// directory names are part of the contract.
+// The paths below pin the on-disk layout so an existing cache directory keeps
+// working: the original dockerproxy layout with the request body hash appended
+// (empty, hence the trailing "+", for bodyless requests). Quirks such as the
+// unpadded hex directory names are part of the contract.
 func TestCachePathMatchesOriginalLayout(t *testing.T) {
 	c := &cache{dir: "/cache"}
 	for _, tc := range []struct {
@@ -35,19 +36,19 @@ func TestCachePathMatchesOriginalLayout(t *testing.T) {
 		{
 			"GET", "https://registry-1.docker.io/v2/library/alpine/manifests/3.21",
 			http.Header{"Accept": {"application/vnd.oci.image.index.v1+json"}, "Authorization": {"Bearer x"}, "User-Agent": {"containers/5.41.0"}},
-			"/cache/764c/de26/eafc/GET+https%3A%2F%2Fregistry-1.docker.io%2Fv2%2Flibrary%2Falpine%2Fmanifests%2F3.21+map%5BAccept%3A%5Bapplication%2Fvnd.oci.im764cde26eafc5e62856b2712d95a7ddc",
+			"/cache/732a/ddc0/6644/GET+https%3A%2F%2Fregistry-1.docker.io%2Fv2%2Flibrary%2Falpine%2Fmanifests%2F3.21+map%5BAccept%3A%5Bapplication%2Fvnd.oci.im732addc06644a5769316041c7d5958ca",
 		},
 		{
 			"GET", "https://dl-cdn.alpinelinux.org/alpine/v3.21/main/x86_64/APKINDEX.tar.gz", nil,
-			"/cache/67f/2afe/409/GET+https%3A%2F%2Fdl-cdn.alpinelinux.org%2Falpine%2Fv3.21%2Fmain%2Fx86_64%2FAPKINDEX.tar.gz+map%5B%5D",
+			"/cache/1811/521/b6b8/GET+https%3A%2F%2Fdl-cdn.alpinelinux.org%2Falpine%2Fv3.21%2Fmain%2Fx86_64%2FAPKINDEX.tar.gz+map%5B%5D+",
 		},
 		{
 			"HEAD", "https://go.dev/dl/go1.25.12.linux-amd64.tar.gz", http.Header{"Range": {"bytes=0-"}},
-			"/cache/8996/cbad/3e28/HEAD+https%3A%2F%2Fgo.dev%2Fdl%2Fgo1.25.12.linux-amd64.tar.gz+map%5BRange%3A%5Bbytes%3D0-%5D%5D",
+			"/cache/f4b7/1334/3076/HEAD+https%3A%2F%2Fgo.dev%2Fdl%2Fgo1.25.12.linux-amd64.tar.gz+map%5BRange%3A%5Bbytes%3D0-%5D%5D+",
 		},
 		{
 			"GET", "https://example.com/" + strings.Repeat("a", 120), nil,
-			"/cache/b8b9/22c9/c613/GET+https%3A%2F%2Fexample.com%2F" + strings.Repeat("a", 76) + "b8b922c9c613be5fdc69e1257a16983e",
+			"/cache/2390/8b40/34b9/GET+https%3A%2F%2Fexample.com%2F" + strings.Repeat("a", 76) + "23908b4034b9f624cf62a8b7706f8b19",
 		},
 	} {
 		if got := c.path(request(t, tc.method, tc.url, tc.header)); got != tc.want {

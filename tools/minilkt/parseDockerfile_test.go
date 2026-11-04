@@ -123,20 +123,6 @@ func TestSplitImagePanicsOnInvalidReference(t *testing.T) {
 	splitImage("UPPERCASE/not-allowed")
 }
 
-// buildArgsOf turns a build.yml's KEY=VALUE list into a map.
-func buildArgsOf(t *testing.T, b *BuildYAML) map[string]string {
-	t.Helper()
-	args := map[string]string{}
-	for _, kv := range b.BuildArgs {
-		k, v, ok := strings.Cut(kv, "=")
-		if !ok {
-			t.Fatalf("bad build arg %q", kv)
-		}
-		args[k] = v
-	}
-	return args
-}
-
 func TestDockerfileImagesForEVEPackages(t *testing.T) {
 	dockerfiles, err := filepath.Glob("../../pkg/*/Dockerfile")
 	if err != nil || len(dockerfiles) == 0 {
@@ -146,7 +132,7 @@ func TestDockerfileImagesForEVEPackages(t *testing.T) {
 		dir := filepath.Dir(dockerfile)
 		var args map[string]string
 		if b, err := ReadBuildYAML(filepath.Join(dir, "build.yml")); err == nil {
-			args = buildArgsOf(t, b)
+			args = b.buildArgs()
 		}
 		got, err := DockerfileImages(dockerfile, args)
 		if err != nil {
