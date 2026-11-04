@@ -15,7 +15,7 @@ func TestImageRowsSplitRepositoryAndTag(t *testing.T) {
 		ID:      "d26eaf460b0f7b8f558305dda9c36c106def8b29a263d3ef5c8306216d0fe885",
 		Names:   []string{"localhost/lfedge/eve-debug:7cdfcd66177403195f23509c6b4eb299f546307f"},
 		Created: listNow.Add(-4 * time.Minute),
-		Annotations: map[string]string{
+		Labels: map[string]string{
 			"org.opencontainers.image.created":                  "2026-10-30T14:13:07Z",
 			"org.opencontainers.image.base.name":                "",
 			"org.minilkt.additionalimage.lfedge/eve-alpine:aaa": "lfedge/eve-alpine:bbb",
@@ -26,7 +26,7 @@ func TestImageRowsSplitRepositoryAndTag(t *testing.T) {
 		Tag:        "7cdfcd66177403195f23509c6b4eb299f546307f",
 		ID:         "d26eaf460b0f",
 		Created:    "4 minutes ago",
-		AdditionalTags: []string{
+		Labels: []string{
 			"org.minilkt.additionalimage.lfedge/eve-alpine:aaa",
 			"org.opencontainers.image.base.name",
 			"org.opencontainers.image.created",
@@ -90,18 +90,18 @@ func TestImageRowsNewestLast(t *testing.T) {
 	}
 }
 
-func TestImageRowsWithoutAnnotationsHaveNoAdditionalTags(t *testing.T) {
+func TestImageRowsWithoutLabelsHaveNone(t *testing.T) {
 	images := []imageEntry{{ID: "0000000000000000", Names: []string{"localhost/x:1"}, Created: listNow}}
-	if got := imageRows(images, listNow); len(got[0].AdditionalTags) != 0 {
-		t.Fatalf("got additional tags %q, want none", got[0].AdditionalTags)
+	if got := imageRows(images, listNow); len(got[0].Labels) != 0 {
+		t.Fatalf("got labels %q, want none", got[0].Labels)
 	}
 }
 
-// Unnamed images are left out of the listing.
-func TestRenderImagesListsMinilktAnnotationsAsBulletsAndSkipsUnnamed(t *testing.T) {
+// Only minilkt labels are listed, as bullets; unnamed images are left out.
+func TestRenderImagesListsMinilktLabelsAsBulletsAndSkipsUnnamed(t *testing.T) {
 	rows := []imageRow{
 		{Repository: "localhost/lfedge/eve-debug", Tag: "7cdfcd66", ID: "d26eaf460b0f", Created: "4 minutes ago",
-			AdditionalTags: []string{
+			Labels: []string{
 				"org.minilkt.additionalimage.lfedge/eve-alpine:1111.lfedge/eve-alpine:ffb8",
 				"org.opencontainers.image.created",
 			}},
@@ -113,7 +113,7 @@ func TestRenderImagesListsMinilktAnnotationsAsBulletsAndSkipsUnnamed(t *testing.
 	}
 	lines := strings.Split(strings.TrimRight(buf.String(), "\n"), "\n")
 	want := [][]string{
-		{"REPOSITORY", "TAG", "IMAGE", "ID", "CREATED", "ADDITIONAL", "TAGS"},
+		{"REPOSITORY", "TAG", "IMAGE", "ID", "CREATED", "MINILKT", "LABELS"},
 		{"localhost/lfedge/eve-debug", "7cdfcd66", "d26eaf460b0f", "4", "minutes", "ago"},
 		{"-", "org.minilkt.additionalimage.lfedge/eve-alpine:1111.lfedge/eve-alpine:ffb8"},
 	}
@@ -124,24 +124,6 @@ func TestRenderImagesListsMinilktAnnotationsAsBulletsAndSkipsUnnamed(t *testing.
 		if got := strings.Fields(line); !reflect.DeepEqual(got, want[i]) {
 			t.Fatalf("line %d: got %v, want %v", i, got, want[i])
 		}
-	}
-}
-
-func TestManifestAnnotationsFromOCIManifest(t *testing.T) {
-	blob := []byte(`{"schemaVersion":2,"mediaType":"application/vnd.oci.image.manifest.v1+json",` +
-		`"config":{"mediaType":"application/vnd.oci.image.config.v1+json","digest":"sha256:aaaa","size":1},` +
-		`"layers":[],"annotations":{"org.opencontainers.image.created":"2026-10-30T14:13:07Z"}}`)
-	want := map[string]string{"org.opencontainers.image.created": "2026-10-30T14:13:07Z"}
-	if got := manifestAnnotations(blob); !reflect.DeepEqual(got, want) {
-		t.Fatalf("got %v, want %v", got, want)
-	}
-}
-
-func TestManifestAnnotationsIgnoresDockerManifest(t *testing.T) {
-	blob := []byte(`{"schemaVersion":2,"mediaType":"application/vnd.docker.distribution.manifest.v2+json",` +
-		`"config":{"mediaType":"application/vnd.docker.container.image.v1+json","digest":"sha256:aaaa","size":1},"layers":[]}`)
-	if got := manifestAnnotations(blob); len(got) != 0 {
-		t.Fatalf("got %v, want none", got)
 	}
 }
 
@@ -171,19 +153,5 @@ func TestConfigLabels(t *testing.T) {
 	}
 	if got := configLabels([]byte(`{"config":{}}`)); len(got) != 0 {
 		t.Fatalf("no labels: got %v", got)
-	}
-}
-
-func TestImageRowsMergeLabelsAndAnnotations(t *testing.T) {
-	images := []imageEntry{{
-		ID:          "0000000000000000",
-		Names:       []string{"lfedge/x:1"},
-		Created:     listNow,
-		Annotations: map[string]string{"org.opencontainers.image.created": "2026"},
-		Labels:      map[string]string{"org.minilkt.additionalimage.lfedge/eve-alpine-base:77cc": "", "io.buildah.version": "1.45.0"},
-	}}
-	want := []string{"io.buildah.version", "org.minilkt.additionalimage.lfedge/eve-alpine-base:77cc", "org.opencontainers.image.created"}
-	if got := imageRows(images, listNow)[0].AdditionalTags; !reflect.DeepEqual(got, want) {
-		t.Fatalf("got %v, want %v", got, want)
 	}
 }
