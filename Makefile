@@ -1005,7 +1005,7 @@ $(LIVE).parallels: $(LIVE).raw
 pkgs: RESCAN_DEPS=
 pkgs: $(LINUXKIT) $(PKGS) $(LK_POSSIBLE_BUILD_ARG_TARGETS)
 	@echo Done building packages
-newpkgs: $(LINUXKIT)
+newpkgs:
 	./tools/minilkt/minilkt build $(PKGS)
 	./tools/minilkt/minilkt i e2l
 	@echo Done building packages $(PKGS)
