@@ -57,12 +57,19 @@ func main() {
 	}
 
 	proxyStartCmdCacheDir := filepath.Join(dataDir, "proxy")
+	proxyStartNetns := false
 	proxyStartCmd := &cobra.Command{
 		Use:  "start",
 		Args: cobra.MaximumNArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
 			if len(args) == 1 {
 				proxyStartCmdCacheDir = os.Args[0]
+			}
+			if proxyStartNetns {
+				// The namespace needs a user namespace. Under podman unshare
+				// this is podman's own, the one its containers can join, and
+				// the call is a no-op; otherwise it re-execs into a new one.
+				unshare.MaybeReexecUsingUserNamespace(false)
 			}
 			p, err := dockerproxy.New(proxyStartCmdCacheDir)
 			os.Mkdir("proxy", 0o700)
@@ -71,11 +78,36 @@ func main() {
 			if err != nil {
 				panic(err)
 			}
-			if err := p.Start(uint16(httpsProxyPort)); err != nil {
+			netnsPath := ""
+			if proxyStartNetns {
+				ns, err := newPrivateNetns()
+				if err != nil {
+					panic(err)
+				}
+				listeners, err := listenBothSides(ns, uint16(httpsProxyPort))
+				if err != nil {
+					panic(err)
+				}
+				if err := p.StartWith(listeners); err != nil {
+					panic(err)
+				}
+				netnsPath = ns.Path
+			} else if err := p.Start(uint16(httpsProxyPort)); err != nil {
 				panic(err)
 			}
 
 			fmt.Printf("port: %d capath: %s\n", httpsProxyPort, p.CertPEM)
+			if netnsPath != "" {
+				fmt.Printf("netns: %s\n", netnsPath)
+				fmt.Printf(`podman run: podman run --network=ns:%s -e http_proxy=http://127.0.0.1:%d -e https_proxy=http://127.0.0.1:%d \
+							-v %s:/etc/ssl/cert.pem:ro,z -v %s:/usr/local/share/ca-certificates/proxy-ca.crt:ro,z -it <image>`,
+					netnsPath, httpsProxyPort, httpsProxyPort, p.CertPEM, p.CertPEM)
+				fmt.Println()
+				fmt.Printf(`podman build: http_proxy=http://127.0.0.1:%d https_proxy=http://127.0.0.1:%d podman build --network=ns:%s \
+							-v %s:/etc/ssl/cert.pem:ro,z -v %s:/usr/local/share/ca-certificates/proxy-ca.crt:ro,z -t <tag> .`,
+					httpsProxyPort, httpsProxyPort, netnsPath, p.CertPEM, p.CertPEM)
+				fmt.Println()
+			}
 			fmt.Printf("example usage:\n")
 			fmt.Printf("curl: curl -x localhost:%d --cacert %s <url>\n", httpsProxyPort, p.CertPEM)
 			fmt.Printf("go program: SSL_CERT_FILE=%s https_proxy=localhost:%d go run client.go\n", p.CertPEM, httpsProxyPort)
@@ -95,6 +127,7 @@ func main() {
 		},
 	}
 	proxyStartCmd.PersistentFlags().StringVarP(&proxyStartCmdCacheDir, "cache", "c", proxyStartCmdCacheDir, "set cache dir")
+	proxyStartCmd.PersistentFlags().BoolVar(&proxyStartNetns, "netns", false, "also listen in a private loopback-only network namespace for containers to join (run under podman unshare for podman)")
 
 	proxyWipeCmd := &cobra.Command{
 		Use:  "wipe",
