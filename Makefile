@@ -1006,6 +1006,7 @@ pkgs: RESCAN_DEPS=
 pkgs: $(LINUXKIT) $(PKGS) $(LK_POSSIBLE_BUILD_ARG_TARGETS)
 	@echo Done building packages
 newpkgs:
+	go build -C tools/minilkt
 	./tools/minilkt/minilkt build $(PKGS)
 	./tools/minilkt/minilkt i e2l
 	@echo Done building packages $(PKGS)
