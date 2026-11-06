@@ -66,7 +66,7 @@ func exportAllToLinuxkitCache() error {
 		return err
 	}
 
-	sysCtx, err := registriesConf(dataDir)
+	sysCtx, err := registriesConf()
 	if err != nil {
 		panic(err)
 	}
