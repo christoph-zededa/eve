@@ -167,8 +167,8 @@ func buildMulti(ds []string, forceRebuild, dryBuild, keepGoing bool) {
 	os.Setenv("http_proxy", proxyURL)
 	os.Setenv("NO_PROXY", "localhost,127.0.0.1")
 
-	setupGit(dataDir, certFile)
-	sysCtx, err := registriesConf(dataDir)
+	setupGit(certFile)
+	sysCtx, err := registriesConf()
 	if err != nil {
 		panic(err)
 	}
@@ -435,7 +435,7 @@ func qualified(name string) string {
 	return reference.TagNameOnly(named).String()
 }
 
-func setupGit(dataDir, certFile string) {
+func setupGit(certFile string) {
 	var err error
 
 	gitconfig := `

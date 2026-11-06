@@ -14,7 +14,7 @@ import (
 // (buildah matches FROM before ARG expansion, so FROM ${ARG} never matches) is
 // resolved against the host's unqualified-search-registries, which on most
 // distros means an interactive registry prompt.
-func registriesConf(dataDir string) (*types.SystemContext, error) {
+func registriesConf() (*types.SystemContext, error) {
 	dropIns := filepath.Join(dataDir, "buildah-conf", "registries.conf.d")
 	if err := os.MkdirAll(dropIns, 0o700); err != nil {
 		return nil, err

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"minilkt/dockerproxy"
 	"os"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 	"go.podman.io/buildah"
@@ -23,7 +24,7 @@ func deleteImage(id string) error {
 	return store.Delete(id)
 }
 
-func prune() error {
+func wipe() error {
 	unshare.MaybeReexecUsingUserNamespace(false)
 
 	store, err := openStore()
@@ -32,7 +33,10 @@ func prune() error {
 	}
 	defer func() { _, _ = store.Shutdown(false) }()
 
-	store.Wipe()
+	err = store.Wipe()
+	if err != nil {
+		panic(err)
+	}
 
 	return nil
 }
@@ -52,15 +56,18 @@ func main() {
 		Aliases: []string{"i", "img"},
 	}
 
+	proxyStartCmdCacheDir := filepath.Join(dataDir, "proxy")
 	proxyStartCmd := &cobra.Command{
 		Use:  "start",
 		Args: cobra.MaximumNArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
-			dir := "proxy"
 			if len(args) == 1 {
-				dir = os.Args[0]
+				proxyStartCmdCacheDir = os.Args[0]
 			}
-			p, err := dockerproxy.New(dir)
+			p, err := dockerproxy.New(proxyStartCmdCacheDir)
+			if err != nil {
+				panic(err)
+			}
 			os.Mkdir("proxy", 0o700)
 			p.Verbose = true
 			httpsProxyPort, err := getFreePort()
@@ -90,8 +97,58 @@ func main() {
 			input.Scan()
 		},
 	}
+	proxyStartCmd.PersistentFlags().StringVarP(&proxyStartCmdCacheDir, "cache", "c", proxyStartCmdCacheDir, "set cache dir")
 
-	proxyCmd.AddCommand(proxyStartCmd)
+	proxyWipeCmd := &cobra.Command{
+		Use:  "wipe",
+		Args: cobra.NoArgs,
+		Run: func(cmd *cobra.Command, args []string) {
+			dir := filepath.Join(dataDir, "proxy")
+			p, err := dockerproxy.New(dir)
+			if err != nil {
+				panic(err)
+			}
+			err = p.WipeCache()
+			if err != nil {
+				panic(err)
+			}
+
+		},
+	}
+
+	proxyExportCacheCmd := &cobra.Command{
+		Use:  "export",
+		Args: cobra.MaximumNArgs(1),
+		Run: func(cmd *cobra.Command, args []string) {
+			dir := filepath.Join(dataDir, "proxy", "cache")
+			imageName := cacheImageName
+			if len(args) > 0 {
+				imageName = args[0]
+			}
+			img, err := exportCache(dir, imageName)
+			if err != nil {
+				panic(err)
+			}
+
+			fmt.Printf("image: %+v\n", img)
+		},
+	}
+	proxyImportCacheCmd := &cobra.Command{
+		Use:  "import",
+		Args: cobra.RangeArgs(1, 2),
+		Run: func(cmd *cobra.Command, args []string) {
+			dir := filepath.Join(dataDir, "proxy", "cache")
+			if len(args) > 1 {
+				dir = args[1]
+			}
+			err := importCache(args[0], dir)
+			if err != nil {
+				panic(err)
+			}
+		},
+	}
+
+	proxyCmd.AddCommand(proxyStartCmd, proxyWipeCmd, proxyExportCacheCmd, proxyImportCacheCmd)
 
 	forceBuild := false
 	dryBuild := false
@@ -108,7 +165,7 @@ func main() {
 	buildCmd.PersistentFlags().BoolVarP(&dryBuild, "dry", "d", false, "set dry build")
 	buildCmd.PersistentFlags().BoolVarP(&keepBuild, "keep-going", "k", false, "keep going building")
 
-	listCmd := &cobra.Command{
+	listImageCmd := &cobra.Command{
 		Use:          "list",
 		Aliases:      []string{"ls"},
 		Short:        "List the images in the minilkt store",
@@ -118,16 +175,36 @@ func main() {
 			return listImages(os.Stdout)
 		},
 	}
-
-	pruneCmd := &cobra.Command{
-		Use:   "prune",
-		Short: "prune all images containers and layers",
-		Args:  cobra.NoArgs,
-		Run: func(cmd *cobra.Command, args []string) {
-			prune()
+	pushImageCmd := &cobra.Command{
+		Use:          "push <id> <org> <name>",
+		Aliases:      []string{},
+		Short:        "push image to docker hub",
+		Args:         cobra.ExactArgs(3),
+		SilenceUsage: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return uploadImage(args[0], args[1], args[2])
 		},
 	}
-	deleteCmd := &cobra.Command{
+	pullImageCmd := &cobra.Command{
+		Use:          "pull <org> <name>",
+		Aliases:      []string{},
+		Short:        "push image to docker hub",
+		Args:         cobra.ExactArgs(2),
+		SilenceUsage: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return downloadImage(args[0], args[1])
+		},
+	}
+
+	wipeImageCmd := &cobra.Command{
+		Use:   "wipe",
+		Short: "wipe all images containers and layers",
+		Args:  cobra.NoArgs,
+		Run: func(cmd *cobra.Command, args []string) {
+			wipe()
+		},
+	}
+	deleteImageCmd := &cobra.Command{
 		Use:     "delete",
 		Short:   "delete image",
 		Aliases: []string{"del", "rm"},
@@ -152,7 +229,7 @@ func main() {
 		},
 	}
 
-	imageCmd.AddCommand(pruneCmd, listCmd, deleteCmd, export2LktCacheCmd)
+	imageCmd.AddCommand(wipeImageCmd, listImageCmd, deleteImageCmd, export2LktCacheCmd, pushImageCmd, pullImageCmd)
 
 	rootCmd.AddCommand(proxyCmd, buildCmd, imageCmd)
 
