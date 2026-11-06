@@ -107,6 +107,10 @@ func unreadableStore(opt string) bool {
 }
 
 func buildMulti(ds []string, forceRebuild, dryBuild, keepGoing bool) {
+	// The build network namespace below needs the user namespace, so re-exec
+	// first; the later call in build is then a no-op.
+	unshare.MaybeReexecUsingUserNamespace(false)
+
 	deps := map[string][]string{}
 	image2pkgHashes := map[string]string{}
 	image2path := map[string]string{}
@@ -151,7 +155,18 @@ func buildMulti(ds []string, forceRebuild, dryBuild, keepGoing bool) {
 	if err != nil {
 		panic(err)
 	}
-	if err := p.Start(uint16(httpsProxyPort)); err != nil {
+	// Build steps run in a network namespace holding nothing but loopback and
+	// the proxy, so the proxy is the only thing they can reach. minilkt's own
+	// pulls and the host-side git of ADD use the same port on the host side.
+	buildNetns, err := newPrivateNetns()
+	if err != nil {
+		panic(err)
+	}
+	listeners, err := listenBothSides(buildNetns, uint16(httpsProxyPort))
+	if err != nil {
+		panic(err)
+	}
+	if err := p.StartWith(listeners); err != nil {
 		panic(err)
 	}
 	defer p.Stop()
@@ -198,7 +213,7 @@ func buildMulti(ds []string, forceRebuild, dryBuild, keepGoing bool) {
 
 		// fmt.Printf(">>>>> %s\n", d)
 		// fmt.Printf("\t%+v\n", replaceImage)
-		err := build(d, replaceImage, httpsProxyPort, p.CertPEM, sysCtx, forceRebuild, dryBuild)
+		err := build(d, replaceImage, httpsProxyPort, p.CertPEM, buildNetns.Path, sysCtx, forceRebuild, dryBuild)
 		if err != nil {
 			var lastErr error
 			for {
@@ -245,7 +260,7 @@ func buildYamlTag(by *BuildYAML, hash string) string {
 	return buf.String()
 }
 
-func build(d string, replaceImage map[string]string, httpsProxyPort int, certFile string, sysCtx *types.SystemContext, forceRebuild, dryBuild bool) error {
+func build(d string, replaceImage map[string]string, httpsProxyPort int, certFile, netnsPath string, sysCtx *types.SystemContext, forceRebuild, dryBuild bool) error {
 	fmt.Printf("----- building %s ------\n", d)
 	unshare.MaybeReexecUsingUserNamespace(false)
 
@@ -319,9 +334,7 @@ func build(d string, replaceImage map[string]string, httpsProxyPort int, certFil
 	buildOptions := define.BuildOptions{
 		ContextDirectory: d,
 		NamespaceOptions: []define.NamespaceOption{
-			{Name: string(specs.NetworkNamespace), Host: true},
-			// seems pasta is suffering from an epollhup bug with busybox's wget
-			// 			// {Name: string(specs.NetworkNamespace), Path: fmt.Sprintf("pasta:--splice-only,-T,%d", httpsProxyPort)},
+			{Name: string(specs.NetworkNamespace), Path: netnsPath},
 		},
 		RemoveIntermediateCtrs: false,
 		Layers:                 true,

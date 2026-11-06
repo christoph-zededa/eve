@@ -107,14 +107,23 @@ func (p *Proxy) WipeCache() error {
 // called, so a proxy URL naming localhost works whichever address a client
 // resolves it to.
 func (p *Proxy) Start(port uint16) error {
+	listeners, err := ListenLoopback(port)
+	if err != nil {
+		return err
+	}
+	return p.StartWith(listeners)
+}
+
+// StartWith serves the proxy on listeners the caller opened, for instance in
+// another network namespace, until Stop is called. It takes ownership of them.
+func (p *Proxy) StartWith(listeners []net.Listener) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.srv != nil {
+		for _, ln := range listeners {
+			ln.Close()
+		}
 		return errors.New("dockerproxy: already started")
-	}
-	listeners, err := listenLoopback(port)
-	if err != nil {
-		return err
 	}
 	srv := &http.Server{Handler: p.handler()}
 	served := make(chan struct{})
@@ -139,10 +148,11 @@ func (p *Proxy) Start(port uint16) error {
 	return nil
 }
 
-// listenLoopback binds port on 127.0.0.1 and, where the host has IPv6, on
-// ::1. Build containers resolve localhost to ::1 first and pasta forwards
-// that to the host's ::1, so IPv4 alone leaves them with a reset connection.
-func listenLoopback(port uint16) ([]net.Listener, error) {
+// ListenLoopback binds port on 127.0.0.1 and, where IPv6 is available, on
+// ::1, in the calling thread's network namespace. Build containers resolve
+// localhost to ::1 first, so IPv4 alone leaves them with a reset connection.
+// With port 0 the kernel picks one, the same for both addresses.
+func ListenLoopback(port uint16) ([]net.Listener, error) {
 	v4, err := net.Listen("tcp4", net.JoinHostPort("127.0.0.1", strconv.Itoa(int(port))))
 	if err != nil {
 		return nil, err
