@@ -119,7 +119,7 @@ func buildMulti(ds []string, forceRebuild, dryBuild, keepGoing, offlineBuild boo
 		if err != nil {
 			panic(err)
 		}
-		by, err := ParseBuildYAMLDir(d)
+		by, err := parseBuildYAMLDir(d)
 		if err != nil {
 			panic(err)
 		}
@@ -290,7 +290,7 @@ func build(d string, replaceImage map[string]string, httpsProxyPort int, certFil
 	if err != nil {
 		panic(err)
 	}
-	by, err := ParseBuildYAMLDir(d)
+	by, err := parseBuildYAMLDir(d)
 	if err != nil {
 		panic(err)
 	}
