@@ -117,7 +117,7 @@ func TestBuildOrderForEVEPackages(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		images, err := DockerfileImages(filepath.Join(dir, "Dockerfile"), nil)
+		images, err := dockerfileImagesFromPath(filepath.Join(dir, "Dockerfile"), nil)
 		if err != nil {
 			t.Fatal(err)
 		}

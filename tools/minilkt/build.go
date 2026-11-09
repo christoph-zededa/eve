@@ -128,7 +128,7 @@ func buildMulti(ds []string, forceRebuild, dryBuild, keepGoing, offlineBuild boo
 		image2pkgHashes[imageName] = hash
 		image2path[imageName] = d
 
-		dfImages, err := DockerfileImages(filepath.Join(d, "Dockerfile"), map[string]string{})
+		dfImages, err := dockerfileImagesFromPath(filepath.Join(d, "Dockerfile"), map[string]string{})
 		if err != nil {
 			panic(err)
 		}
@@ -267,7 +267,7 @@ func build(d string, replaceImage map[string]string, httpsProxyPort int, certFil
 
 	dockerfile := filepath.Join(d, "Dockerfile")
 	// parse(dockerfile)
-	dfImages, err := DockerfileImages(dockerfile, map[string]string{})
+	dfImages, err := dockerfileImagesFromPath(dockerfile, map[string]string{})
 	if err != nil {
 		return fmt.Errorf("parsing dockerfile %s failed: %v", dockerfile, err)
 	}
