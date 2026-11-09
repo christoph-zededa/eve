@@ -115,7 +115,7 @@ func buildMulti(ds []string, forceRebuild, dryBuild, keepGoing, offlineBuild boo
 	image2pkgHashes := map[string]string{}
 	image2path := map[string]string{}
 	for _, d := range ds {
-		hash, err := PkgHash(d)
+		hash, err := lktPkgHash(d)
 		if err != nil {
 			panic(err)
 		}
@@ -286,7 +286,7 @@ func build(d string, replaceImage map[string]string, httpsProxyPort int, certFil
 		}
 	}()
 
-	imageTagHash, err := PkgHash(d)
+	imageTagHash, err := lktPkgHash(d)
 	if err != nil {
 		panic(err)
 	}

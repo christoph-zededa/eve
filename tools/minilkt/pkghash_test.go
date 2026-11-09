@@ -63,7 +63,7 @@ func (f *fixture) commit() {
 
 func (f *fixture) hash() string {
 	f.t.Helper()
-	h, err := PkgHash(f.pkg)
+	h, err := lktPkgHash(f.pkg)
 	if err != nil {
 		f.t.Fatalf("PkgHash(%s): %v", f.pkg, err)
 	}
@@ -114,7 +114,7 @@ func TestPkgHashCleanTreeIsSubtreeHash(t *testing.T) {
 func TestPkgHashRepositoryRootUsesCommitTree(t *testing.T) {
 	f := newFixture(t)
 	want := f.git("rev-parse", "HEAD^{tree}")
-	got, err := PkgHash(f.root)
+	got, err := lktPkgHash(f.root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,7 +124,7 @@ func TestPkgHashRepositoryRootUsesCommitTree(t *testing.T) {
 }
 
 func TestPkgHashOutsideGitFails(t *testing.T) {
-	if _, err := PkgHash(t.TempDir()); err == nil {
+	if _, err := lktPkgHash(t.TempDir()); err == nil {
 		t.Fatal("expected an error for a directory outside any git repository")
 	}
 }
@@ -132,7 +132,7 @@ func TestPkgHashOutsideGitFails(t *testing.T) {
 func TestPkgHashUncommittedDirectoryFails(t *testing.T) {
 	f := newFixture(t)
 	f.write("pkg/fresh/build.yml", "image: fresh\n")
-	if _, err := PkgHash(filepath.Join(f.root, "pkg", "fresh")); err == nil {
+	if _, err := lktPkgHash(filepath.Join(f.root, "pkg", "fresh")); err == nil {
 		t.Fatal("expected an error for a directory that is not in HEAD")
 	}
 }
@@ -250,7 +250,7 @@ func TestPkgHashExtraSourcesMatchLinuxkit(t *testing.T) {
 	f.write("pkg/probe/build.yml", "image: probe\nextra-sources:\n  - ../../extra/one:/one\n  - ../../extra/two:/two\n")
 	f.commit()
 	want := linuxkitHash(t, f.pkg)
-	got, err := PkgHash(f.pkg, filepath.Join(f.root, "extra", "one"), filepath.Join(f.root, "extra", "two"))
+	got, err := lktPkgHash(f.pkg, filepath.Join(f.root, "extra", "one"), filepath.Join(f.root, "extra", "two"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -275,7 +275,7 @@ func TestPkgHashMatchesLinuxkitForEVEPackages(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		got, err := PkgHash(dir)
+		got, err := lktPkgHash(dir)
 		if err != nil {
 			t.Errorf("%s: %v", dir, err)
 			continue
@@ -296,7 +296,7 @@ func BenchmarkPkgHashPillar(b *testing.B) {
 		b.Skip("not inside an EVE checkout")
 	}
 	for b.Loop() {
-		if _, err := PkgHash(dir); err != nil {
+		if _, err := lktPkgHash(dir); err != nil {
 			b.Fatal(err)
 		}
 	}

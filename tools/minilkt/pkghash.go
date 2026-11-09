@@ -24,13 +24,13 @@ import (
 	"github.com/go-git/go-git/v5/storage/filesystem"
 )
 
-// PkgHash returns what linuxkit's "pkg show-tag" substitutes for {{.Hash}}:
+// lktPkgHash returns what linuxkit's "pkg show-tag" substitutes for {{.Hash}}:
 // the git tree hash of dir at HEAD, folded together with the tree hashes of
 // any extra source directories the way build.yml "extra-sources:" entries
 // are, and suffixed with "-dirty-<7 hex of a content hash>" while dir has
 // uncommitted changes. The repository is read with go-git; no git binary is
 // involved.
-func PkgHash(dir string, extraSources ...string) (string, error) {
+func lktPkgHash(dir string, extraSources ...string) (string, error) {
 	pkg, err := openPkgDir(dir)
 	if err != nil {
 		return "", err

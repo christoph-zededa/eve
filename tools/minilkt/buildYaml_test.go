@@ -234,7 +234,7 @@ func TestLoadPkgFoldsExtraSourcesIntoHash(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want, err := PkgHash(f.pkg, filepath.Join(f.root, "extra", "one"))
+	want, err := lktPkgHash(f.pkg, filepath.Join(f.root, "extra", "one"))
 	if err != nil {
 		t.Fatal(err)
 	}

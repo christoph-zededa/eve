@@ -256,7 +256,7 @@ func LoadPkg(dir, buildYML string) (*Pkg, error) {
 	for _, s := range sources[1:] {
 		extra = append(extra, s.Src)
 	}
-	hash, err := PkgHash(abs, extra...)
+	hash, err := lktPkgHash(abs, extra...)
 	if err != nil {
 		return nil, err
 	}
