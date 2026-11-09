@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"maps"
 	"slices"
 	"strings"
 	"text/tabwriter"
@@ -28,7 +27,8 @@ type imageEntry struct {
 
 type imageRow struct {
 	Repository, Tag, ID, Created string
-	Labels                       []string // annotation and label keys, sorted
+	AdditionalImageLabels        []string // annotation and label keys, sorted
+	LktLabel                     string
 }
 
 // imageRows turns images into one row per name, oldest image first so the
@@ -41,9 +41,10 @@ func imageRows(images []imageEntry, now time.Time) []imageRow {
 	var rows []imageRow
 	for _, img := range images {
 		row := imageRow{
-			ID:      shortID(img.ID),
-			Created: units.HumanDuration(now.Sub(img.Created)) + " ago",
-			Labels:  annotationList(img.Labels, img.Labels),
+			ID:                    shortID(img.ID),
+			Created:               units.HumanDuration(now.Sub(img.Created)) + " ago",
+			AdditionalImageLabels: additionalImageLabelsFromLabels(img.Labels),
+			LktLabel:              img.Labels[lktNamePrefix],
 		}
 		names := img.Names
 		if len(names) == 0 {
@@ -53,20 +54,21 @@ func imageRows(images []imageEntry, now time.Time) []imageRow {
 			row.Repository, row.Tag = splitRepoTag(name)
 			rows = append(rows, row)
 		}
+
 	}
 	return rows
 }
 
-// annotationList returns the keys of the given annotation or label sets,
+// additionalImageLabelsFromLabels returns the keys of the given annotation or label sets,
 // sorted and without duplicates.
-func annotationList(sets ...map[string]string) []string {
-	keys := map[string]struct{}{}
-	for _, set := range sets {
-		for k := range set {
-			keys[k] = struct{}{}
+func additionalImageLabelsFromLabels(sets map[string]string) []string {
+	ret := make([]string, 0)
+	for k := range sets {
+		if strings.HasPrefix(k, orgImageAdditionPrefix) {
+			ret = append(ret, k)
 		}
 	}
-	return slices.Sorted(maps.Keys(keys))
+	return ret
 }
 
 // splitRepoTag maps a stored image name to the linuxkit-style repository
@@ -94,17 +96,16 @@ func shortID(id string) string {
 // continue on their own lines in the last column.
 func renderImages(w io.Writer, rows []imageRow) error {
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "REPOSITORY\tTAG\tIMAGE ID\tCREATED\tMINILKT LABELS")
+	fmt.Fprintln(tw, "REPOSITORY\tTAG\tIMAGE ID\tCREATED\tLKT LABEL\tMINILKT LABELS")
 	for _, r := range rows {
 		if r.Tag == noneValue || r.Repository == noneValue {
 			continue
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", r.Repository, r.Tag, r.ID, r.Created)
-		for _, tag := range r.Labels {
-			if !strings.HasPrefix(tag, "org.minilkt.additionalimage") {
-				continue
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", r.Repository, r.Tag, r.ID, r.Created, r.LktLabel)
+		for _, tag := range r.AdditionalImageLabels {
+			if strings.HasPrefix(tag, orgImageAdditionPrefix) {
+				fmt.Fprintf(tw, "\t- %s\n", tag)
 			}
-			fmt.Fprintf(tw, "\t- %s\n", tag)
 		}
 	}
 	return tw.Flush()
@@ -126,11 +127,12 @@ func listImages(w io.Writer) error {
 	}
 	entries := make([]imageEntry, 0, len(images))
 	for _, img := range images {
+		labels := imageLabels(store, img.ID)
 		entries = append(entries, imageEntry{
 			ID:      img.ID,
 			Names:   img.Names,
 			Created: img.Created,
-			Labels:  imageLabels(store, img.ID),
+			Labels:  labels,
 		})
 	}
 	return renderImages(w, imageRows(entries, time.Now()))

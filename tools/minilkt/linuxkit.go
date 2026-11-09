@@ -71,7 +71,7 @@ func exportAllToLinuxkitCache() error {
 		panic(err)
 	}
 
-	for i, img := range images {
+	for _, img := range images {
 		if len(img.Names) == 0 {
 			continue
 		}
@@ -79,10 +79,14 @@ func exportAllToLinuxkitCache() error {
 			fmt.Printf("img has more than 1 name: %+v\n", img)
 			panic("")
 		}
-		if i > 1 {
-			fmt.Println()
+		repo, _ := splitRepoTag(img.Names[0])
+		labels := imageLabels(store, img.ID)
+		lktTag := labels[lktNamePrefix]
+		if lktTag == "" {
+			continue
 		}
-		fmt.Printf("%s ...\n", img.Names[0])
+		lktImageName := fmt.Sprintf("docker.io/%s:%s", repo, lktTag)
+		fmt.Printf("%s -> %s ...\n", img.Names[0], lktImageName)
 		err = exportToLinuxkitCache(context.TODO(), store, img.Names[0], sysCtx)
 		if err != nil {
 			return err

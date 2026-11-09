@@ -26,6 +26,8 @@ import (
 )
 
 const orgImageAdditionPrefix = "org.minilkt.additionalimage"
+const lktNamePrefix = "linuxkit.image.name"
+const miniLktNamePrefix = "minilkt.image.name"
 const dataDir = "/home/christoph/.minilkt"
 
 // openStore opens the image store that build writes to and list reads.
@@ -112,7 +114,8 @@ func buildMulti(ds []string, forceRebuild, dryBuild, keepGoing, offlineBuild boo
 	unshare.MaybeReexecUsingUserNamespace(false)
 
 	deps := map[string][]string{}
-	image2pkgHashes := map[string]string{}
+	image2lktPkgHashes := map[string]string{}
+	image2miniLktPkgHashes := map[string]string{}
 	image2path := map[string]string{}
 	for _, d := range ds {
 		hash, err := lktPkgHash(d)
@@ -124,16 +127,35 @@ func buildMulti(ds []string, forceRebuild, dryBuild, keepGoing, offlineBuild boo
 			panic(err)
 		}
 
-		imageName := fmt.Sprintf("%s/%s", by.Org, by.Image)
-		image2pkgHashes[imageName] = hash
-		image2path[imageName] = d
-
 		dfImages, err := dockerfileImagesFromPath(filepath.Join(d, "Dockerfile"), map[string]string{})
 		if err != nil {
 			panic(err)
 		}
 
+		imageName := fmt.Sprintf("%s/%s", by.Org, by.Image)
+		image2lktPkgHashes[imageName] = hash
+		image2path[imageName] = d
+
 		deps[imageName] = dfImages
+	}
+
+	for image, path := range image2path {
+		depPkgs := make([]string, 0)
+		for _, dep := range deps[image] {
+			org, name, _ := splitImage(dep)
+			imageWithoutHash := fmt.Sprintf("%s/%s", org, name)
+			depPkg, found := image2path[imageWithoutHash]
+			if !found {
+				continue
+			}
+			depPkgs = append(depPkgs, depPkg)
+		}
+		fmt.Printf("%s -> %s -- deps: %+v\n", image, path, depPkgs)
+		hash, err := lktPkgHash(path, depPkgs...)
+		if err != nil {
+			panic(err)
+		}
+		image2miniLktPkgHashes[image] = hash
 	}
 
 	fmt.Printf("deps: %+v\n", deps)
@@ -193,14 +215,14 @@ func buildMulti(ds []string, forceRebuild, dryBuild, keepGoing, offlineBuild boo
 		replaceImage := map[string]string{}
 		d, found := image2path[image]
 
-		dDeps := deps[image]
-		for _, dep := range dDeps {
+		for _, dep := range deps[image] {
 			org, name, _ := splitImage(dep)
 			newImage := fmt.Sprintf("%s/%s", org, name)
 			if image == newImage {
 				continue
 			}
-			newImageHash := image2pkgHashes[newImage]
+			// newImageHash := image2lktPkgHashes[newImage]
+			newImageHash := image2miniLktPkgHashes[newImage]
 			if newImageHash == "" {
 				continue
 			}
@@ -214,7 +236,7 @@ func buildMulti(ds []string, forceRebuild, dryBuild, keepGoing, offlineBuild boo
 
 		// fmt.Printf(">>>>> %s\n", d)
 		// fmt.Printf("\t%+v\n", replaceImage)
-		err := build(d, replaceImage, httpsProxyPort, p.CertPEM, buildNetns.Path, sysCtx, forceRebuild, dryBuild)
+		err := build(d, image2lktPkgHashes[image], image2miniLktPkgHashes[image], replaceImage, httpsProxyPort, p.CertPEM, buildNetns.Path, sysCtx, forceRebuild, dryBuild)
 		if err != nil {
 			var lastErr error
 			for {
@@ -261,7 +283,7 @@ func buildYamlTag(by *BuildYAML, hash string) string {
 	return buf.String()
 }
 
-func build(d string, replaceImage map[string]string, httpsProxyPort int, certFile, netnsPath string, sysCtx *types.SystemContext, forceRebuild, dryBuild bool) error {
+func build(d string, lktHash, miniLktHash string, replaceImage map[string]string, httpsProxyPort int, certFile, netnsPath string, sysCtx *types.SystemContext, forceRebuild, dryBuild bool) error {
 	fmt.Printf("----- building %s ------\n", d)
 	unshare.MaybeReexecUsingUserNamespace(false)
 
@@ -286,20 +308,19 @@ func build(d string, replaceImage map[string]string, httpsProxyPort int, certFil
 		}
 	}()
 
-	imageTagHash, err := lktPkgHash(d)
-	if err != nil {
-		panic(err)
-	}
 	by, err := parseBuildYAMLDir(d)
 	if err != nil {
 		panic(err)
 	}
 	if by.Tag != "" {
-		imageTagHash = buildYamlTag(by, imageTagHash)
+		lktHash = buildYamlTag(by, lktHash)
+		miniLktHash = buildYamlTag(by, miniLktHash)
 	}
-	imageName := fmt.Sprintf("%s/%s:%s", by.Org, by.Image, imageTagHash)
-	fullName := qualified(imageName)
-	fmt.Printf("image is: %s\n", fullName)
+	lktImageName := fmt.Sprintf("%s/%s:%s", by.Org, by.Image, lktHash)
+	miniLktImageName := fmt.Sprintf("%s/%s:%s", by.Org, by.Image, miniLktHash)
+	lktFullName := qualified(lktImageName)
+	miniLktFullName := qualified(miniLktImageName)
+	fmt.Printf("image is: %s (lkt name is: %s)\n", miniLktFullName, lktFullName)
 
 	// Every image the Dockerfile names reaches buildah fully qualified, so no
 	// short name is ever resolved against the host's registries.conf.
@@ -322,8 +343,9 @@ func build(d string, replaceImage map[string]string, httpsProxyPort int, certFil
 	for _, v := range replaceImage {
 		addTag := fmt.Sprintf("%s.%s", orgImageAdditionPrefix, v)
 		newImageAnnotations = append(newImageAnnotations, addTag)
-
 	}
+	newImageAnnotations = append(newImageAnnotations, fmt.Sprintf("%s=%s", lktNamePrefix, lktFullName))
+	newImageAnnotations = append(newImageAnnotations, fmt.Sprintf("%s=%s", miniLktNamePrefix, miniLktFullName))
 	buildArgs := by.buildArgs()
 	if len(buildArgs) > 0 {
 		fmt.Printf("adding extra build args: %+v\n", buildArgs)
@@ -351,7 +373,7 @@ func build(d string, replaceImage map[string]string, httpsProxyPort int, certFil
 		AdditionalBuildContexts: additionalBuildCtx,
 		// AdditionalTags:          []string{imageName},
 		Labels: newImageAnnotations,
-		Output: fullName,
+		Output: miniLktFullName,
 		Args:   buildArgs,
 	}
 	if forceRebuild {
@@ -359,35 +381,32 @@ func build(d string, replaceImage map[string]string, httpsProxyPort int, certFil
 	}
 
 	if !forceRebuild {
-		imageID, err := buildah.Pull(context.TODO(), fullName, buildah.PullOptions{
+		imageID, err := buildah.Pull(context.TODO(), miniLktFullName, buildah.PullOptions{
 			SystemContext: sysCtx,
 			Store:         buildStore,
 		})
 		if err != nil {
-			fmt.Printf("pull failed (proxy port: %d): %T %+v\n", httpsProxyPort, err, err)
-			// TODO: removeme
-			_, err := buildStore.Image(fullName)
-			if err == nil {
-				panic("cannot pull, but image is there, please fix")
-			}
-			// could not pull image, therefore we cannot lookup extra annotations
-			buildOptions.NoCache = true
-		} else {
-			fmt.Printf("pull image id: %s\n", imageID)
-			// return
+			fmt.Printf("pull failed (proxy port: %d): %+v\n", httpsProxyPort, err)
+			imageID, err := buildah.Pull(context.TODO(), lktFullName, buildah.PullOptions{
+				SystemContext: sysCtx,
+				Store:         buildStore,
+			})
 			img, err := buildStore.Image(imageID)
-			if err != nil {
-				panic(err)
+			if err == nil {
+				oldImageAnnotations := additionalImageLabelsFromLabels(imageLabels(buildStore, img.ID))
+				if compareAnnotations(oldImageAnnotations, newImageAnnotations) {
+					fmt.Printf("Image (%s) already built, but needs re-tagging to minilkt: %s\n", lktFullName, miniLktFullName)
+					err := buildStore.AddNames(img.ID, []string{miniLktFullName})
+					if err == nil {
+						return nil
+					}
+				} else {
+					fmt.Printf("Image needs to be rebuilt as dependency package(s) changed\n")
+					buildOptions.NoCache = true
+				}
 			}
-			oldImageAnnotations := annotationList(imageLabels(buildStore, img.ID))
-
-			if compareAnnotations(oldImageAnnotations, newImageAnnotations) {
-				fmt.Printf("Image (%s) already built\n", fullName)
-				return nil
-			} else {
-				fmt.Printf("Image needs to be rebuilt as dependency package(s) changed\n")
-				buildOptions.NoCache = true
-			}
+		} else {
+			fmt.Printf("successfully pulled image id: %s\n", imageID)
 		}
 	}
 
@@ -395,12 +414,11 @@ func build(d string, replaceImage map[string]string, httpsProxyPort int, certFil
 		fmt.Println("dry build selected")
 		return nil
 	}
-	// TODO: inject TARGETARCH and BUILDARCH env variables
 	buildImageID, _, err := imagebuildah.BuildDockerfiles(context.TODO(), buildStore, buildOptions, dockerfile)
 	if err != nil {
 		return fmt.Errorf("building '%s' failed (%T):\n%+v", d, err, err)
 	}
-	fmt.Printf("built image id: %s\n\ttag: %s\n\tannotations: %+v\n", buildImageID, imageName, newImageAnnotations)
+	fmt.Printf("built image id: %s\n\ttag: %s\n\tannotations: %+v\n", buildImageID, miniLktImageName, newImageAnnotations)
 
 	return nil
 }
