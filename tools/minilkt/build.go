@@ -385,28 +385,30 @@ func build(d string, lktHash, miniLktHash string, replaceImage map[string]string
 			SystemContext: sysCtx,
 			Store:         buildStore,
 		})
-		if err != nil {
-			fmt.Printf("pull failed (proxy port: %d): %+v\n", httpsProxyPort, err)
-			imageID, err := buildah.Pull(context.TODO(), lktFullName, buildah.PullOptions{
-				SystemContext: sysCtx,
-				Store:         buildStore,
-			})
-			img, err := buildStore.Image(imageID)
-			if err == nil {
-				oldImageAnnotations := additionalImageLabelsFromLabels(imageLabels(buildStore, img.ID))
-				if compareAnnotations(oldImageAnnotations, newImageAnnotations) {
-					fmt.Printf("Image (%s) already built, but needs re-tagging to minilkt: %s\n", lktFullName, miniLktFullName)
-					err := buildStore.AddNames(img.ID, []string{miniLktFullName})
-					if err == nil {
-						return nil
-					}
-				} else {
-					fmt.Printf("Image needs to be rebuilt as dependency package(s) changed\n")
-					buildOptions.NoCache = true
-				}
-			}
-		} else {
+		if err == nil {
 			fmt.Printf("successfully pulled image id: %s\n", imageID)
+			return nil
+		}
+
+		fmt.Printf("pull failed (proxy port: %d): %+v\n", httpsProxyPort, err)
+		imageID, err = buildah.Pull(context.TODO(), lktFullName, buildah.PullOptions{
+			SystemContext: sysCtx,
+			Store:         buildStore,
+		})
+		img, err := buildStore.Image(imageID)
+		if err == nil {
+			oldImageAnnotations := additionalImageLabelsFromLabels(imageLabels(buildStore, img.ID))
+			if compareAnnotations(oldImageAnnotations, newImageAnnotations) {
+				fmt.Printf("Image (%s) already built, but needs re-tagging to minilkt: %s\n", lktFullName, miniLktFullName)
+				err := buildStore.AddNames(img.ID, []string{miniLktFullName})
+				if err != nil {
+					panic(err)
+				}
+				return nil
+			}
+			fmt.Printf("Image needs to be rebuilt as dependency package(s) changed\n")
+			buildOptions.NoCache = true
+
 		}
 	}
 
