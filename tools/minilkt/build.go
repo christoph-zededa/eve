@@ -106,7 +106,7 @@ func unreadableStore(opt string) bool {
 	return false
 }
 
-func buildMulti(ds []string, forceRebuild, dryBuild, keepGoing bool) {
+func buildMulti(ds []string, forceRebuild, dryBuild, keepGoing, offlineBuild bool) {
 	// The build network namespace below needs the user namespace, so re-exec
 	// first; the later call in build is then a no-op.
 	unshare.MaybeReexecUsingUserNamespace(false)
@@ -151,6 +151,7 @@ func buildMulti(ds []string, forceRebuild, dryBuild, keepGoing bool) {
 		panic(err)
 	}
 	p.Verbose = true
+	p.BlockExtern = offlineBuild
 	httpsProxyPort, err := getFreePort()
 	if err != nil {
 		panic(err)

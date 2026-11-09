@@ -59,6 +59,7 @@ func main() {
 
 	proxyStartCmdCacheDir := filepath.Join(dataDir, "proxy")
 	proxyStartNetns := false
+	proxyOfflineMode := false
 	proxyStartCmd := &cobra.Command{
 		Use:  "start",
 		Args: cobra.MaximumNArgs(1),
@@ -76,6 +77,7 @@ func main() {
 			}
 			os.Mkdir("proxy", 0o700)
 			p.Verbose = true
+			p.BlockExtern = proxyOfflineMode
 			httpsProxyPort, err := getFreePort()
 			if err != nil {
 				panic(err)
@@ -129,6 +131,7 @@ func main() {
 		},
 	}
 	proxyStartCmd.PersistentFlags().StringVarP(&proxyStartCmdCacheDir, "cache", "c", proxyStartCmdCacheDir, "set cache dir")
+	proxyStartCmd.PersistentFlags().BoolVarP(&proxyOfflineMode, "offline", "o", proxyOfflineMode, "block access to non-cached resources")
 	proxyStartCmd.PersistentFlags().BoolVar(&proxyStartNetns, "netns", false, "also listen in a private loopback-only network namespace for containers to join (run under podman unshare for podman)")
 
 	proxyWipeCmd := &cobra.Command{
@@ -189,11 +192,12 @@ func main() {
 		Use:  "build <pkg dir>",
 		Args: cobra.MinimumNArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
-			buildMulti(args, forceBuild, dryBuild, keepBuild)
+			buildMulti(args, forceBuild, dryBuild, keepBuild, proxyOfflineMode)
 		},
 	}
 
 	buildCmd.PersistentFlags().BoolVarP(&forceBuild, "force", "f", false, "set force build")
+	buildCmd.PersistentFlags().BoolVarP(&proxyOfflineMode, "offline", "o", false, "block access to non-cached resources")
 	buildCmd.PersistentFlags().BoolVarP(&dryBuild, "dry", "d", false, "set dry build")
 	buildCmd.PersistentFlags().BoolVarP(&keepBuild, "keep-going", "k", false, "keep going building")
 

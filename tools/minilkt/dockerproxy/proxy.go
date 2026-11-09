@@ -56,6 +56,8 @@ type Proxy struct {
 	Verbose bool
 	Debug   bool
 
+	BlockExtern bool
+
 	ca        *tls.Certificate
 	cache     *cache
 	transport *http.Transport
@@ -242,6 +244,11 @@ func (p *Proxy) onRequest(req *http.Request, ctx *goproxy.ProxyCtx) (*http.Reque
 	if resp != nil {
 		p.logf("cache hit  %s %s", req.Method, req.URL)
 		ctx.UserData = &reqState{fromCache: true}
+		return req, resp
+	}
+	if p.BlockExtern {
+		resp := goproxy.NewResponse(req, goproxy.ContentTypeText, http.StatusForbidden, "Proxy is in blocking mode")
+		p.logf("cache forbidden %s %s", req.Method, req.URL)
 		return req, resp
 	}
 	p.logf("cache miss %s %s", req.Method, req.URL)
