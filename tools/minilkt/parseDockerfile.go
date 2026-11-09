@@ -44,12 +44,12 @@ func dump(n *parser.Node, depth int) {
 
 }
 
-// DockerfileImages returns every image the Dockerfile at path would pull, in
+// dockerfileImagesFromPath returns every image the Dockerfile at path would pull, in
 // order of first mention and without repeats: the base of each stage, and the
 // sources of COPY --from and RUN --mount=from=... that do not name a stage.
 // ARG references in those names are resolved from buildArgs and the file's
 // own defaults, as a build would. scratch is not an image and is left out.
-func DockerfileImages(path string, buildArgs map[string]string) ([]string, error) {
+func dockerfileImagesFromPath(path string, buildArgs map[string]string) ([]string, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err

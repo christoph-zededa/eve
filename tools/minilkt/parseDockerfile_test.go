@@ -91,7 +91,7 @@ func TestDockerfileImagesFailsOnUnresolvableBase(t *testing.T) {
 }
 
 func TestDockerfileImagesMissingFileFails(t *testing.T) {
-	if _, err := DockerfileImages(filepath.Join(t.TempDir(), "Dockerfile"), nil); err == nil {
+	if _, err := dockerfileImagesFromPath(filepath.Join(t.TempDir(), "Dockerfile"), nil); err == nil {
 		t.Fatal("expected an error for a missing file")
 	}
 }
@@ -134,7 +134,7 @@ func TestDockerfileImagesForEVEPackages(t *testing.T) {
 		if b, err := ReadBuildYAML(filepath.Join(dir, "build.yml")); err == nil {
 			args = b.buildArgs()
 		}
-		got, err := DockerfileImages(dockerfile, args)
+		got, err := dockerfileImagesFromPath(dockerfile, args)
 		if err != nil {
 			t.Errorf("%s: %v", dockerfile, err)
 			continue
@@ -151,7 +151,7 @@ func TestDockerfileImagesForEVEPackages(t *testing.T) {
 }
 
 func TestDockerfileImagesForEVEAlpine(t *testing.T) {
-	got, err := DockerfileImages("../../pkg/alpine/Dockerfile", nil)
+	got, err := dockerfileImagesFromPath("../../pkg/alpine/Dockerfile", nil)
 	if err != nil {
 		t.Skip("not inside an EVE checkout")
 	}
@@ -168,7 +168,7 @@ func TestDockerfileImagesForEVEAlpine(t *testing.T) {
 // never surface as an image, whatever the platform.
 func TestDockerfileImagesForEVEFirmwareSelectsStageByArg(t *testing.T) {
 	for _, platform := range []string{"generic", "nvidia-jp5"} {
-		got, err := DockerfileImages("../../pkg/fw/Dockerfile", map[string]string{"PLATFORM": platform})
+		got, err := dockerfileImagesFromPath("../../pkg/fw/Dockerfile", map[string]string{"PLATFORM": platform})
 		if err != nil {
 			t.Skip("not inside an EVE checkout")
 		}
