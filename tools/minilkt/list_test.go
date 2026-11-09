@@ -26,7 +26,7 @@ func TestImageRowsSplitRepositoryAndTag(t *testing.T) {
 		Tag:        "7cdfcd66177403195f23509c6b4eb299f546307f",
 		ID:         "d26eaf460b0f",
 		Created:    "4 minutes ago",
-		Labels: []string{
+		AdditionalImageLabels: []string{
 			"org.minilkt.additionalimage.lfedge/eve-alpine:aaa",
 			"org.opencontainers.image.base.name",
 			"org.opencontainers.image.created",
@@ -92,8 +92,8 @@ func TestImageRowsNewestLast(t *testing.T) {
 
 func TestImageRowsWithoutLabelsHaveNone(t *testing.T) {
 	images := []imageEntry{{ID: "0000000000000000", Names: []string{"localhost/x:1"}, Created: listNow}}
-	if got := imageRows(images, listNow); len(got[0].Labels) != 0 {
-		t.Fatalf("got labels %q, want none", got[0].Labels)
+	if got := imageRows(images, listNow); len(got[0].AdditionalImageLabels) != 0 {
+		t.Fatalf("got labels %q, want none", got[0].AdditionalImageLabels)
 	}
 }
 
@@ -101,7 +101,7 @@ func TestImageRowsWithoutLabelsHaveNone(t *testing.T) {
 func TestRenderImagesListsMinilktLabelsAsBulletsAndSkipsUnnamed(t *testing.T) {
 	rows := []imageRow{
 		{Repository: "localhost/lfedge/eve-debug", Tag: "7cdfcd66", ID: "d26eaf460b0f", Created: "4 minutes ago",
-			Labels: []string{
+			AdditionalImageLabels: []string{
 				"org.minilkt.additionalimage.lfedge/eve-alpine:1111.lfedge/eve-alpine:ffb8",
 				"org.opencontainers.image.created",
 			}},
