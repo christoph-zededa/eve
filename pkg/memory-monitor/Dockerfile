@@ -1,4 +1,5 @@
-FROM lfedge/eve-alpine:ef20bcb617db5545765f4d7486621cf606e5595e AS memory-monitor-build
+ARG LFEDGE_EVE_ALPINE_AUTO_TAG
+FROM lfedge/eve-alpine:${LFEDGE_EVE_ALPINE_AUTO_TAG} AS memory-monitor-build
 
 ENV BUILD_PKGS gcc musl-dev make linux-headers cmake build-base
 ENV PKGS alpine-baselayout curl strace

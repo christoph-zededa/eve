@@ -3,6 +3,10 @@
 #
 # DON'T FORGET TO UPDATE THE HASH WHEN SOMETHING CHANGES!
 # please see https://github.com/lf-edge/eve/blob/master/docs/BUILD.md#how-to-update-eve-alpine-package
+
+ARG LFEDGE_EVE_ALPINE_BASE_AUTO_TAG
+ARG LFEDGE_EVE_ALPINE_AUTO_TAG
+#FROM lfedge/eve-alpine:${LFEDGE_EVE_ALPINE_AUTO_TAG} AS cache-build
 FROM lfedge/eve-alpine:1f744180283ffb4eabcc3862531aeacf1de886b3 AS cache-build
 
 ARG ALPINE_VERSION=3.22
@@ -44,7 +48,7 @@ done
 RUN cp /mirror/${ALPINE_VERSION}/rootfs/etc/apk/repositories /etc/apk
 RUN apk update
 
-FROM lfedge/eve-alpine-base:77cc1495c875b7468dbf4123210abf86a1ffb852-07a6e7df6 AS compactor
+FROM lfedge/eve-alpine-base:${LFEDGE_EVE_ALPINE_BASE_AUTO_TAG} AS compactor
 ARG TARGETARCH
 ARG GO_VERSION=1.25.12
 

@@ -7,11 +7,18 @@
 ARG BUILD_PKGS_BASE="git gcc linux-headers libc-dev make linux-pam-dev m4 findutils util-linux make patch \
                      libintl libuuid libtirpc libblkid libcrypto3 zlib tar"
 
+ARG LFEDGE_EVE_ALPINE_AUTO_TAG
+ARG LFEDGE_EVE_UEFI_AUTO_TAG
+ARG LFEDGE_EVE_DOM0_ZTOOLS_AUTO_TAG
+ARG LFEDGE_EVE_CROSS_COMPILERS_AUTO_TAG
+ARG LFEDGE_EVE_FSCRYPT_AUTO_TAG
+ARG LFEDGE_EVE_GPT_TOOLS_AUTO_TAG
+ARG LFEDGE_EVE_STORAGE_RESIZER_AUTO_TAG
 # we use the same image in several places
-ARG EVE_ALPINE_IMAGE=lfedge/eve-alpine:ef20bcb617db5545765f4d7486621cf606e5595e
+ARG EVE_ALPINE_IMAGE=lfedge/eve-alpine:${LFEDGE_EVE_ALPINE_AUTO_TAG}
 
-FROM lfedge/eve-uefi:7e975cf524ce81922f283bf434563a08ac400a17 AS uefi-build
-FROM lfedge/eve-dom0-ztools:d8171e117252dea3d56ba889583df7e397b784bd  AS zfs
+FROM lfedge/eve-uefi:${LFEDGE_EVE_UEFI_AUTO_TAG} AS uefi-build
+FROM lfedge/eve-dom0-ztools:${LFEDGE_EVE_DOM0_ZTOOLS_AUTO_TAG}  AS zfs
 RUN mkdir /out
 # copy zfs-related files from dom0-ztools using prepared list of files
 RUN while read -r x; do \
@@ -34,7 +41,7 @@ ARG BUILD_PKGS_BASE
 RUN BUILD_PKGS="${BUILD_PKGS_BASE}" eve-alpine-deploy.sh
 
 # hadolint ignore=DL3029
-FROM --platform=${BUILDPLATFORM} lfedge/eve-cross-compilers:d794c049baf50389be1dd48da056fb2472574c3e AS cross-compilers
+FROM --platform=${BUILDPLATFORM} lfedge/eve-cross-compilers:${LFEDGE_EVE_CROSS_COMPILERS_AUTO_TAG} AS cross-compilers
 
 # will use several packages from target arch and copy them to sysroot
 # hadolint ignore=DL3006
@@ -150,9 +157,9 @@ RUN --mount=type=cache,target=/root/.cache/go-build if [ "${TEST_TOOLS}" = "y" ]
     GOBIN=/final/opt/ GOFLAGS="" go install gotest.tools/gotestsum@v1.7.0; \
 fi
 
-FROM lfedge/eve-fscrypt:b848338a69957ca1aee2f47143f8b6245bde0d01 AS fscrypt
-FROM lfedge/eve-gpt-tools:2943833db352b192ef207fecc742f77659d12b0b AS gpttools
-FROM lfedge/eve-storage-resizer:af6f8349494145cec64da95bb4399bc8c39f68ea AS storage-resizer
+FROM lfedge/eve-fscrypt:${LFEDGE_EVE_FSCRYPT_AUTO_TAG} AS fscrypt
+FROM lfedge/eve-gpt-tools:${LFEDGE_EVE_GPT_TOOLS_AUTO_TAG} AS gpttools
+FROM lfedge/eve-storage-resizer:${LFEDGE_EVE_STORAGE_RESIZER_AUTO_TAG} AS storage-resizer
 
 # dhcpcd: Alpine 3.21+ ships a sufficiently up-to-date version (10.x with required IPv6 fixes).
 # No --platform means Docker BuildKit uses the target platform, giving us the correct binary arch.

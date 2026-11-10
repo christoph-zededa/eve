@@ -3,14 +3,17 @@
 # Copyright (c) 2023 Zededa, Inc.
 # SPDX-License-Identifier: Apache-2.0
 
+ARG LFEDGE_EVE_RECOVERTPM_AUTO_TAG
+ARG LFEDGE_EVE_BPFTRACE_AUTO_TAG
+ARG LFEDGE_EVE_ALPINE_AUTO_TAG
 # for debug container we need to build our own copy of musl
 # with -fno-omit-frame-pointer to make sure that perf(1)
 # has a fast path for stack unwinding. This also happens
 # to be a perfect place to put any other kind of debug info
 # into the package: see abuild/etc/abuild.conf.
-FROM lfedge/eve-recovertpm:9c4a89c444b3b3baa3f13143f21acb2f20dbb4ec AS recovertpm
-FROM lfedge/eve-bpftrace:78e835b8ac19f730e4b0201a909b82e7f036cb47 AS bpftrace
-FROM lfedge/eve-alpine:1111 AS build
+FROM lfedge/eve-recovertpm:${LFEDGE_EVE_RECOVERTPM_AUTO_TAG} AS recovertpm
+FROM lfedge/eve-bpftrace:${LFEDGE_EVE_BPFTRACE_AUTO_TAG} AS bpftrace
+FROM lfedge/eve-alpine:${LFEDGE_EVE_ALPINE_AUTO_TAG} AS build
 ENV BUILD_PKGS="abuild curl tar make linux-headers patch g++ git gcc gpg gettext gettext-static ncurses-dev jq autoconf openssl-dev zlib-dev zlib-static gpg-agent"
 # Feel free to add additional packages here, but be aware that
 # EVE's rootfs image can be no larger than 300Mb (and don't

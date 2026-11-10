@@ -21,6 +21,7 @@ sinks-socket,\
 sources-prometheus-scrape,\
 sinks-prometheus'
 
+ARG LFEDGE_EVE_ALPINE_AUTO_TAG
 # hadolint ignore=DL3006
 FROM --platform=$BUILDPLATFORM ${RUST_VERSION} AS toolchain-base
 ARG TARGETARCH
@@ -62,7 +63,7 @@ RUN cargo build --release $VECTOR_FEATURES
 RUN cargo sbom > sbom.spdx.json
 RUN cp "/app/target/$CARGO_BUILD_TARGET/release/vector" /app/target/
 
-FROM lfedge/eve-alpine:ef20bcb617db5545765f4d7486621cf606e5595e AS runtime
+FROM lfedge/eve-alpine:${LFEDGE_EVE_ALPINE_AUTO_TAG} AS runtime
 ENV PKGS="inotify-tools"
 RUN eve-alpine-deploy.sh
 
