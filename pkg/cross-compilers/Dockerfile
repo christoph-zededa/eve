@@ -1,4 +1,5 @@
-FROM lfedge/eve-alpine:5f1c625e658308db22e936e3e5498167ed7b9081 AS build-base
+ARG LFEDGE_EVE_ALPINE_AUTO_TAG
+FROM lfedge/eve-alpine:${LFEDGE_EVE_ALPINE_AUTO_TAG} AS build-base
 ENV BUILD_PKGS="abuild curl tar make linux-headers patch g++ git gcc ncurses-dev autoconf file sudo scdoc lua5.3-lzlib lua5.3"
 RUN eve-alpine-deploy.sh
 
@@ -109,7 +110,7 @@ FROM build-base AS build-armhf
 # we do not support cross-compilers for riscv64 host
 # as gcc-gnat is not available on riscv64
 # we cannot build cross-compilers without additional patches
-FROM lfedge/eve-alpine:5f1c625e658308db22e936e3e5498167ed7b9081 AS build-riscv64
+FROM lfedge/eve-alpine:${LFEDGE_EVE_ALPINE_AUTO_TAG} AS build-riscv64
 
 # hadolint ignore=DL3006
 FROM build-${TARGETARCH} AS build

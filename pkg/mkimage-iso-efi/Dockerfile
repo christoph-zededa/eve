@@ -1,4 +1,5 @@
-FROM lfedge/eve-alpine:61283a3a978a7cdc9073a1ba678717fc3ea1fe97 AS build
+ARG LFEDGE_EVE_ALPINE_AUTO_TAG
+FROM lfedge/eve-alpine:${LFEDGE_EVE_ALPINE_AUTO_TAG} AS build
 
 ENV PKGS="dosfstools libarchive-tools binutils mtools xorriso mkinitfs squashfs-tools"
 RUN eve-alpine-deploy.sh

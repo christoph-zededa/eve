@@ -1,4 +1,5 @@
-FROM lfedge/eve-alpine:61283a3a978a7cdc9073a1ba678717fc3ea1fe97 AS build
+ARG LFEDGE_EVE_ALPINE_AUTO_TAG
+FROM lfedge/eve-alpine:${LFEDGE_EVE_ALPINE_AUTO_TAG} AS build
 ENV BUILD_PKGS="gcc make file patch libc-dev linux-headers openssl-dev g++ tar coreutils"
 # util-linux-static on riscv64 is broken; we build libuuid from source instead (see below).
 ENV BUILD_PKGS_amd64="util-linux-static util-linux-dev"

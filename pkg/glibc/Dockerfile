@@ -7,6 +7,7 @@
 # base image, so there is nothing to apt-get install here -- we only
 # harvest the files that are already present. That makes the image the
 # version pin, hence the digest: the tag moves with every Ubuntu point update.
+ARG LFEDGE_EVE_ALPINE_AUTO_TAG
 FROM ubuntu:24.04@sha256:534baea6a22c03a63003dbc8dbe78fe34bc0d7e595d9a9dc9834884ff530eb55 AS build-harvest
 
 RUN set -eu; \
@@ -80,7 +81,7 @@ FROM build-${TARGETARCH} AS build
 # than in the Ubuntu stage that knows the versions; pkgs.tsv carries them over.
 # The init-only call guarantees the DB file exists on architectures that
 # register nothing.
-FROM lfedge/eve-alpine:61283a3a978a7cdc9073a1ba678717fc3ea1fe97 AS sbom
+FROM lfedge/eve-alpine:${LFEDGE_EVE_ALPINE_AUTO_TAG} AS sbom
 COPY --from=build /sbom/pkgs.tsv /pkgs.tsv
 RUN register-sbom-pkg.sh -o /sbom-out && \
     tab="$(printf '\t')" && \

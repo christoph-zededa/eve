@@ -1,5 +1,6 @@
 # syntax=docker/dockerfile-upstream:1.5.0-rc2-labs
 
+ARG LFEDGE_EVE_ALPINE_AUTO_TAG
 # sriov-cni upstream image is used only as a source of the prebuilt sriov
 # binary; we copy it into our final image at build time so we don't need a
 # DaemonSet at runtime just to stage the binary on each node.  Pinned by
@@ -19,7 +20,7 @@
 # hadolint ignore=DL3029
 FROM --platform=linux/amd64 ghcr.io/k8snetworkplumbingwg/sriov-cni@sha256:fce504e683275ab59215065ddf6433ca80d1b4b53f0d4b0cdf037da6701c7cb4 AS sriov-cni-bin
 
-FROM lfedge/eve-alpine:61283a3a978a7cdc9073a1ba678717fc3ea1fe97 AS build
+FROM lfedge/eve-alpine:${LFEDGE_EVE_ALPINE_AUTO_TAG} AS build
 
 ARG TARGETARCH
 ENV PKGS="alpine-baselayout musl-utils iproute2 iptables curl openrc \

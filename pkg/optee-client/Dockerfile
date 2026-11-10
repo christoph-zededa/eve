@@ -3,7 +3,8 @@
 # Copyright (c) 2026 Zededa, Inc.
 # SPDX-License-Identifier: Apache-2.0
 
-FROM lfedge/eve-alpine:61283a3a978a7cdc9073a1ba678717fc3ea1fe97 AS build-arm64
+ARG LFEDGE_EVE_ALPINE_AUTO_TAG
+FROM lfedge/eve-alpine:${LFEDGE_EVE_ALPINE_AUTO_TAG} AS build-arm64
 
 ARG BUILD_PKGS="bash binutils-dev bsd-compat-headers build-base bc bison \
   cmake flex openssl-dev util-linux-dev linux-headers swig git gnutls-dev \
