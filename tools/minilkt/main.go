@@ -113,7 +113,7 @@ func main() {
 				fmt.Println()
 			}
 			fmt.Printf("example usage:\n")
-			fmt.Printf("curl: curl -x localhost:%d --cacert %s <url>\n", httpsProxyPort, p.CertPEM)
+			fmt.Printf("curl: curl -x localhost:%d --cacert %s https://timeapi.io/api/time/current/zone?timeZone=Europe/Busingen\n", httpsProxyPort, p.CertPEM)
 			fmt.Printf("go program: SSL_CERT_FILE=%s https_proxy=localhost:%d go run client.go\n", p.CertPEM, httpsProxyPort)
 			fmt.Printf(`podman build: https_proxy=http://127.0.0.1:%d http_proxy=http://127.0.0.1:%d SSL_CERT_FILE=%s \
 							podman build --network=pasta:--splice-only,-T,%d -v %s:/etc/ssl/cert.pem:ro,z \
