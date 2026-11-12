@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"minilkt/dockerproxy"
 	"os"
@@ -13,7 +14,7 @@ import (
 	"go.podman.io/storage/pkg/unshare"
 )
 
-func deleteImage(id string) error {
+func deleteImage(ids ...string) error {
 	unshare.MaybeReexecUsingUserNamespace(false)
 
 	store, err := openStore()
@@ -22,7 +23,13 @@ func deleteImage(id string) error {
 	}
 	defer func() { _, _ = store.Shutdown(false) }()
 
-	return store.Delete(id)
+	for i, id := range ids {
+		fmt.Printf("[%d/%d] deleting %s ...\n", i, len(ids), id)
+		errDel := store.Delete(id)
+		err = errors.Join(err, errDel)
+	}
+
+	return err
 }
 
 func wipe() error {
@@ -244,9 +251,9 @@ func main() {
 		Use:     "delete",
 		Short:   "delete image",
 		Aliases: []string{"del", "rm"},
-		Args:    cobra.ExactArgs(1),
+		Args:    cobra.MinimumNArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
-			err := deleteImage(args[0])
+			err := deleteImage(args...)
 			if err != nil {
 				fmt.Printf("failed: %+v\n", err)
 			}
