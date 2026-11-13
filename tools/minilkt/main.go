@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	"go.podman.io/buildah"
@@ -208,16 +209,28 @@ func main() {
 	buildCmd.PersistentFlags().BoolVarP(&dryBuild, "dry", "d", false, "set dry build")
 	buildCmd.PersistentFlags().BoolVarP(&keepBuild, "keep-going", "k", false, "keep going building")
 
+	var quiet bool
 	listImageCmd := &cobra.Command{
 		Use:          "list",
 		Aliases:      []string{"ls"},
 		Short:        "List the images in the minilkt store",
 		Args:         cobra.NoArgs,
 		SilenceUsage: true,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return listImages(os.Stdout)
+		Run: func(cmd *cobra.Command, args []string) {
+			imgs, err := listImages()
+			if err != nil {
+				panic(err)
+			}
+			if quiet {
+				for _, img := range imgs {
+					fmt.Printf("%s\n", img.ID)
+				}
+			} else {
+				renderImages(os.Stdout, imageRows(imgs, time.Now()))
+			}
 		},
 	}
+	listImageCmd.PersistentFlags().BoolVarP(&quiet, "quiet", "q", false, "quiet")
 	pushImageCmd := &cobra.Command{
 		Use:          "push <id> <org> <name>",
 		Aliases:      []string{},
