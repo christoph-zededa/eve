@@ -28,7 +28,8 @@ import (
 const orgImageAdditionPrefix = "org.minilkt.additionalimage"
 const lktNamePrefix = "linuxkit.image.name"
 const miniLktNamePrefix = "minilkt.image.name"
-const dataDir = "/home/christoph/.minilkt"
+
+var dataDir = filepath.Join(homedir.Get(), ".minilkt")
 
 // openStore opens the image store that build writes to and list reads.
 func openStore() (storage.Store, error) {
@@ -55,7 +56,6 @@ func setStoreOptions(opts *storage.StoreOptions) error {
 	return nil
 }
 
-// TODO: use ~/.minilkt
 // storeRoots returns the run and graph roots to build under, or empty strings
 // to keep whatever the config files resolved to.
 //
@@ -76,11 +76,7 @@ func storeRoots() (runRoot, graphRoot string, err error) {
 	if err != nil {
 		return "", "", fmt.Errorf("no runtime dir for the rootless store: %w", err)
 	}
-	dataDir, err := homedir.GetDataHome()
-	if err != nil {
-		return "", "", fmt.Errorf("no data dir for the rootless store: %w", err)
-	}
-	return filepath.Join(runtimeDir, "minilkt"), filepath.Join(dataDir, "minilkt", "storage"), nil
+	return filepath.Join(runtimeDir, "minilkt"), filepath.Join(dataDir, "container", "storage"), nil
 }
 
 // unreadableStore reports whether a graph driver option names an additional
