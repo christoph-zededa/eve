@@ -12,7 +12,6 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-	"text/template"
 
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 	"go.podman.io/buildah"
@@ -269,18 +268,6 @@ func getFreePort() (port int, err error) {
 		}
 	}
 	return
-}
-
-func buildYamlTag(by *BuildYAML, hash string) string {
-	tmpl, err := template.New("tag").Parse(by.Tag)
-	if err != nil {
-		return hash
-	}
-	var buf bytes.Buffer
-	if err := tmpl.Execute(&buf, map[string]string{"Hash": hash}); err != nil {
-		return hash
-	}
-	return buf.String()
 }
 
 func build(d string, lktHash, miniLktHash string, replaceImage map[string]string, httpsProxyPort int, certFile, netnsPath string, sysCtx *types.SystemContext, forceRebuild, dryBuild bool) error {
