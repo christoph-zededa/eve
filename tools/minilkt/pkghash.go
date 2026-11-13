@@ -39,6 +39,7 @@ func lktPkgHash(dir string, extraSources ...string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	slices.Sort(extraSources)
 	if len(extraSources) > 0 {
 		combined := hash
 		for _, src := range extraSources {
