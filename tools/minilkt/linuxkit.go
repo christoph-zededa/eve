@@ -30,15 +30,16 @@ func linuxkitCacheDir() string {
 }
 
 // exportToLinuxkitCache copies image from the build store into the linuxkit
-// cache, an OCI layout dir. The ref.name annotation c/image writes is the one
-// linuxkit looks images up by; io.containerd.image.name is only read by
-// `linuxkit cache import`, which this bypasses.
-func exportToLinuxkitCache(ctx context.Context, store storage.Store, image string, sysCtx *types.SystemContext) error {
+// cache, an OCI layout dir, under the name lktImage. The ref.name annotation
+// c/image writes is the one linuxkit looks images up by;
+// io.containerd.image.name is only read by `linuxkit cache import`, which this
+// bypasses.
+func exportToLinuxkitCache(ctx context.Context, store storage.Store, image, lktImage string, sysCtx *types.SystemContext) error {
 	src, err := istorage.Transport.ParseStoreReference(store, image)
 	if err != nil {
 		return err
 	}
-	dst, err := ocilayout.NewReference(linuxkitCacheDir(), image)
+	dst, err := ocilayout.NewReference(linuxkitCacheDir(), lktImage)
 	if err != nil {
 		return err
 	}
@@ -84,15 +85,13 @@ func exportAllToLinuxkitCache() error {
 			fmt.Printf("img has more than 1 name: %+v\n", img)
 			panic("")
 		}
-		repo, _ := splitRepoTag(img.Names[0])
 		labels := imageLabels(store, img.ID)
-		lktTag := labels[lktNamePrefix]
-		if lktTag == "" {
+		lktImageName := labels[lktNamePrefix]
+		if lktImageName == "" {
 			continue
 		}
-		lktImageName := fmt.Sprintf("docker.io/%s:%s", repo, lktTag)
 		fmt.Printf("%s -> %s ...\n", img.Names[0], lktImageName)
-		err = exportToLinuxkitCache(context.TODO(), store, img.Names[0], sysCtx)
+		err = exportToLinuxkitCache(context.TODO(), store, img.Names[0], lktImageName, sysCtx)
 		if err != nil {
 			return err
 		}
