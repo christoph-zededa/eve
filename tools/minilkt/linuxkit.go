@@ -21,7 +21,12 @@ func linuxkitCacheDir() string {
 		return dir
 	}
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".linuxkit", "cache")
+	lktCacheDir := filepath.Join(home, ".linuxkit", "cache")
+	err := os.MkdirAll(lktCacheDir, 0o700)
+	if err != nil {
+		panic(err)
+	}
+	return lktCacheDir
 }
 
 // exportToLinuxkitCache copies image from the build store into the linuxkit
