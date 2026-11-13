@@ -98,9 +98,6 @@ func renderImages(w io.Writer, rows []imageRow) error {
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(tw, "REPOSITORY\tTAG\tIMAGE ID\tCREATED\tLKT LABEL\tMINILKT LABELS")
 	for _, r := range rows {
-		if r.Tag == noneValue || r.Repository == noneValue {
-			continue
-		}
 		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", r.Repository, r.Tag, r.ID, r.Created, r.LktLabel)
 		for _, tag := range r.AdditionalImageLabels {
 			if strings.HasPrefix(tag, orgImageAdditionPrefix) {
@@ -112,21 +109,28 @@ func renderImages(w io.Writer, rows []imageRow) error {
 }
 
 // listImages prints the images in the store that build writes to.
-func listImages(w io.Writer) error {
+func listImages() ([]imageEntry, error) {
 	unshare.MaybeReexecUsingUserNamespace(false)
 
 	store, err := openStore()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer func() { _, _ = store.Shutdown(false) }()
 
 	images, err := store.Images()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	entries := make([]imageEntry, 0, len(images))
 	for _, img := range images {
+		if len(img.Names) == 0 {
+			continue
+		}
+		repo, tag := splitRepoTag(img.Names[0])
+		if tag == noneValue || repo == noneValue {
+			continue
+		}
 		labels := imageLabels(store, img.ID)
 		entries = append(entries, imageEntry{
 			ID:      img.ID,
@@ -135,7 +139,7 @@ func listImages(w io.Writer) error {
 			Labels:  labels,
 		})
 	}
-	return renderImages(w, imageRows(entries, time.Now()))
+	return entries, nil
 }
 
 // imageLabels reads the labels of the image's config, which both the OCI and
