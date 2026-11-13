@@ -288,3 +288,15 @@ func (b *BuildYAML) buildArgs() map[string]string {
 	}
 	return args
 }
+
+func (by *BuildYAML) tag(hash string) string {
+	tmpl, err := template.New("tag").Parse(by.Tag)
+	if err != nil {
+		return hash
+	}
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, map[string]string{"Hash": hash}); err != nil {
+		return hash
+	}
+	return buf.String()
+}
