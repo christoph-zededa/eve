@@ -25,7 +25,7 @@ import (
 	"go.podman.io/storage/pkg/unshare"
 )
 
-const orgImageAdditionPrefix = "org.minilkt.additionalimage"
+const orgBuildArgPrefix = "org.minilkt.buildarg"
 const lktNamePrefix = "linuxkit.image.name"
 const miniLktNamePrefix = "minilkt.image.name"
 
@@ -104,60 +104,94 @@ func unreadableStore(opt string) bool {
 	return false
 }
 
-func buildMulti(ds []string, forceRebuild, dryBuild, keepGoing, offlineBuild bool) {
-	// The build network namespace below needs the user namespace, so re-exec
-	// first; the later call in build is then a no-op.
-	unshare.MaybeReexecUsingUserNamespace(false)
+type pkg struct {
+	imageName        string // key
+	path             string
+	lktHash          string
+	miniLktHash      string
+	pkgDependencies  []string
+	dockerFileImages []string
+	by               *BuildYAML
+	buildArgsDeps    map[string]string
+}
 
-	deps := map[string][]string{}
-	image2lktPkgHashes := map[string]string{}
-	image2miniLktPkgHashes := map[string]string{}
-	image2path := map[string]string{}
+func newPkgs(ds []string) map[string]pkg {
+	pkgs := map[string]*pkg{}
+
 	for _, d := range ds {
-		hash, err := lktPkgHash(d)
+		var err error
+		p := pkg{path: d}
+
+		p.lktHash, err = lktPkgHash(d)
 		if err != nil {
 			panic(err)
 		}
-		by, err := parseBuildYAMLDir(d)
+		p.by, err = parseBuildYAMLDir(d)
+		if err != nil {
+			panic(err)
+		}
+		p.imageName = fmt.Sprintf("%s/%s", p.by.Org, p.by.Image)
+
+		p.dockerFileImages, err = dockerfileImagesFromPath(filepath.Join(p.path, "Dockerfile"), map[string]string{})
 		if err != nil {
 			panic(err)
 		}
 
-		dfImages, err := dockerfileImagesFromPath(filepath.Join(d, "Dockerfile"), map[string]string{})
-		if err != nil {
-			panic(err)
-		}
-
-		imageName := fmt.Sprintf("%s/%s", by.Org, by.Image)
-		image2lktPkgHashes[imageName] = hash
-		image2path[imageName] = d
-
-		deps[imageName] = dfImages
+		pkgs[p.imageName] = &p
 	}
 
-	for image, path := range image2path {
-		depPkgs := make([]string, 0)
-		for _, dep := range deps[image] {
-			org, name, _ := splitImage(dep)
-			imageWithoutHash := fmt.Sprintf("%s/%s", org, name)
-			depPkg, found := image2path[imageWithoutHash]
+	for _, p := range pkgs {
+		var err error
+
+		depPkgs := make([]*pkg, 0)
+		p.pkgDependencies = make([]string, 0)
+		for _, dep := range p.dockerFileImages {
+			pDep, found := pkgs[dep]
 			if !found {
 				continue
+				// panic("could not find " + dep)
 			}
-			depPkgs = append(depPkgs, depPkg)
+			p.pkgDependencies = append(p.pkgDependencies, pDep.imageName)
+			depPkgs = append(depPkgs, pDep)
 		}
-		fmt.Printf("%s -> %s -- deps: %+v\n", image, path, depPkgs)
-		hash, err := lktPkgHash(path, depPkgs...)
+		extraPaths := make([]string, 0, len(depPkgs))
+		for _, p := range depPkgs {
+			extraPaths = append(extraPaths, p.path)
+		}
+		p.miniLktHash, err = lktPkgHash(p.path, extraPaths...)
 		if err != nil {
 			panic(err)
 		}
-		image2miniLktPkgHashes[image] = hash
+
 	}
 
-	fmt.Printf("deps: %+v\n", deps)
+	// iterate again as we need the buildArgs
+	for _, p := range pkgs {
+		p.buildArgsDeps = make(map[string]string)
+		for _, pDepName := range p.pkgDependencies {
+			pDep, found := pkgs[pDepName]
+			if !found {
+				panic("could not find " + pDepName)
+			}
 
-	if err := dumpBuildMulti(os.Stdout, deps); err != nil {
-		panic(err)
+			byOrg := strings.ToUpper(pDep.by.Org)
+			byImage := strings.ToUpper(pDep.by.Image)
+			byOrg = strings.ReplaceAll(byOrg, "-", "_")
+			byImage = strings.ReplaceAll(byImage, "-", "_")
+			envVarKey := fmt.Sprintf("%s_%s_AUTO_TAG", byOrg, byImage)
+			envVarVal := fmt.Sprintf("%s", pDep.miniLktHash)
+
+			p.buildArgsDeps[envVarKey] = envVarVal
+		}
+	}
+
+	pkgsMap := make(map[string]pkg)
+	for _, p := range pkgs {
+		pkgsMap[p.imageName] = *p
+	}
+	return pkgsMap
+}
+
 func login() error {
 	sysCtx, err := registriesConf()
 	if err != nil {
@@ -170,6 +204,19 @@ func login() error {
 	}
 	return auth.Login(context.TODO(), sysCtx, opts, []string{"docker.io"})
 }
+
+func buildMulti(ds []string, forceRebuild, dryBuild, keepGoing, offlineBuild bool) {
+	unshare.MaybeReexecUsingUserNamespace(false)
+
+	// err := login()
+	// if err != nil {
+	// 	panic(err)
+	// }
+	pkgs := newPkgs(ds)
+
+	deps := map[string][]string{}
+	for _, p := range pkgs {
+		deps[p.imageName] = p.pkgDependencies
 	}
 	order, err := buildOrder(deps)
 	if err != nil {
@@ -220,31 +267,17 @@ func login() error {
 	}
 
 	for _, image := range order {
-		replaceImage := map[string]string{}
-		d, found := image2path[image]
+		pkg := pkgs[image]
 
-		for _, dep := range deps[image] {
-			org, name, _ := splitImage(dep)
-			newImage := fmt.Sprintf("%s/%s", org, name)
-			if image == newImage {
-				continue
-			}
-			// newImageHash := image2lktPkgHashes[newImage]
-			newImageHash := image2miniLktPkgHashes[newImage]
-			if newImageHash == "" {
-				continue
-			}
-			replaceImage[dep] = fmt.Sprintf("%s:%s", newImage, newImageHash)
-		}
-
-		if !found {
-			log.Fatalf("could not find path for %s\n", image)
-			continue
-		}
-
-		// fmt.Printf(">>>>> %s\n", d)
-		// fmt.Printf("\t%+v\n", replaceImage)
-		err := build(d, image2lktPkgHashes[image], image2miniLktPkgHashes[image], replaceImage, httpsProxyPort, p.CertPEM, buildNetns.Path, sysCtx, forceRebuild, dryBuild)
+		err := build(
+			pkg,
+			httpsProxyPort,
+			p.CertPEM,
+			buildNetns.Path,
+			sysCtx,
+			forceRebuild,
+			dryBuild,
+		)
 		if err != nil {
 			var lastErr error
 			for {
@@ -260,10 +293,9 @@ func login() error {
 			if !keepGoing {
 				panic(err)
 			} else {
-				fmt.Printf("!!!!! building %s failed: %T -> %v\n", d, lastErr, lastErr)
+				fmt.Printf("!!!!! building %s failed: %T -> %v\n", image, lastErr, lastErr)
 			}
 		}
-		// fmt.Printf("<<<<<<<<<<<<<\n")
 	}
 }
 
@@ -279,18 +311,9 @@ func getFreePort() (port int, err error) {
 	return
 }
 
-func build(d string, lktHash, miniLktHash string, replaceImage map[string]string, httpsProxyPort int, certFile, netnsPath string, sysCtx *types.SystemContext, forceRebuild, dryBuild bool) error {
-	fmt.Printf("----- building %s ------\n", d)
+func build(p pkg, httpsProxyPort int, certFile, netnsPath string, sysCtx *types.SystemContext, forceRebuild, dryBuild bool) error {
+	fmt.Printf("----- building %s ------\n", p.imageName)
 	unshare.MaybeReexecUsingUserNamespace(false)
-
-	dockerfile := filepath.Join(d, "Dockerfile")
-	// parse(dockerfile)
-	dfImages, err := dockerfileImagesFromPath(dockerfile, map[string]string{})
-	if err != nil {
-		return fmt.Errorf("parsing dockerfile %s failed: %v", dockerfile, err)
-	}
-
-	fmt.Printf("dfImages: %+v\n", dfImages)
 
 	buildStore, err := openStore()
 	if err != nil {
@@ -304,60 +327,71 @@ func build(d string, lktHash, miniLktHash string, replaceImage map[string]string
 		}
 	}()
 
-	by, err := parseBuildYAMLDir(d)
-	if err != nil {
-		panic(err)
+	lktHash := p.lktHash
+	miniLktHash := p.miniLktHash
+	if p.by.Tag != "" {
+		lktHash = p.by.tag(p.lktHash)
+		miniLktHash = p.by.tag(p.miniLktHash)
 	}
-	if by.Tag != "" {
-		lktHash = buildYamlTag(by, lktHash)
-		miniLktHash = buildYamlTag(by, miniLktHash)
-	}
-	lktImageName := fmt.Sprintf("%s/%s:%s", by.Org, by.Image, lktHash)
-	miniLktImageName := fmt.Sprintf("%s/%s:%s", by.Org, by.Image, miniLktHash)
+	lktImageName := fmt.Sprintf("%s/%s:%s", p.by.Org, p.by.Image, lktHash)
+	miniLktImageName := fmt.Sprintf("%s/%s:%s", p.by.Org, p.by.Image, miniLktHash)
 	lktFullName := qualified(lktImageName)
 	miniLktFullName := qualified(miniLktImageName)
 	fmt.Printf("image is: %s (lkt name is: %s)\n", miniLktFullName, lktFullName)
 
 	// Every image the Dockerfile names reaches buildah fully qualified, so no
 	// short name is ever resolved against the host's registries.conf.
-	additionalBuildCtx := map[string]*define.AdditionalBuildContext{}
-	for k, v := range replaceImage {
-		additionalBuildCtx[k] = &define.AdditionalBuildContext{
-			IsImage: true,
-			Value:   qualified(v),
-		}
-	}
-	for _, img := range dfImages {
-		if _, replaced := additionalBuildCtx[img]; !replaced {
-			additionalBuildCtx[img] = &define.AdditionalBuildContext{
-				IsImage: true,
-				Value:   qualified(img),
-			}
-		}
-	}
+	// additionalBuildCtx := map[string]*define.AdditionalBuildContext{}
+	// for k, v := range replaceImage {
+	// 	additionalBuildCtx[k] = &define.AdditionalBuildContext{
+	// 		IsImage: true,
+	// 		Value:   qualified(v),
+	// 	}
+	// }
+	// for _, img := range dfImages {
+	// 	if _, replaced := additionalBuildCtx[img]; !replaced {
+	// 		additionalBuildCtx[img] = &define.AdditionalBuildContext{
+	// 			IsImage: true,
+	// 			Value:   qualified(img),
+	// 		}
+	// 	}
+	// }
 	newImageAnnotations := make([]string, 0)
-	for _, v := range replaceImage {
-		addTag := fmt.Sprintf("%s.%s", orgImageAdditionPrefix, v)
+	for k, v := range p.buildArgsDeps {
+		addTag := fmt.Sprintf("%s.%s.%s", orgBuildArgPrefix, k, v)
 		newImageAnnotations = append(newImageAnnotations, addTag)
 	}
 	newImageAnnotations = append(newImageAnnotations, fmt.Sprintf("%s=%s", lktNamePrefix, lktFullName))
 	newImageAnnotations = append(newImageAnnotations, fmt.Sprintf("%s=%s", miniLktNamePrefix, miniLktFullName))
-	buildArgs := by.buildArgs()
-	if len(buildArgs) > 0 {
-		fmt.Printf("adding extra build args: %+v\n", buildArgs)
+	if len(p.by.BuildArgs) > 0 {
+		fmt.Printf("adding extra build args from build.yml: %+v\n", p.by.BuildArgs)
+	}
+	for k, v := range p.by.buildArgs() {
+		p.buildArgsDeps[k] = v
 	}
 
 	buildArgs["TARGETARCH"] = "amd64"
 	buildArgs["BUILDARCH"] = "amd64"
 
+	stdoutWriter := prefixWriter{
+		prefix: p.imageName + ": ",
+		w:      os.Stdout,
+	}
+	stderrWriter := prefixWriter{
+		prefix: "!!ERROR " + p.imageName + ": ",
+		w:      os.Stdout,
+	}
+	defer stdoutWriter.Flush()
+	defer stderrWriter.Flush()
 	buildOptions := define.BuildOptions{
-		ContextDirectory: d,
+		ContextDirectory: p.path,
 		NamespaceOptions: []define.NamespaceOption{
 			{Name: string(specs.NetworkNamespace), Path: netnsPath},
 		},
 		RemoveIntermediateCtrs: false,
 		Layers:                 true,
 		// OutputFormat:           define.OCIv1ImageManifest,
+		// Isolation: define.IsolationOCIRootless, // TODO
 		OutputFormat:    define.Dockerv2ImageManifest,
 		PullPolicy:      define.PullIfMissing,
 		SystemContext:   sysCtx,
@@ -366,11 +400,16 @@ func build(d string, lktHash, miniLktHash string, replaceImage map[string]string
 			certFile + ":/etc/ssl/cert.pem:ro,z",
 			certFile + ":/usr/local/share/ca-certificates/proxy-ca.crt:ro,z",
 		},
-		AdditionalBuildContexts: additionalBuildCtx,
+		// AdditionalBuildContexts: additionalBuildCtx,
 		// AdditionalTags:          []string{imageName},
 		Labels: newImageAnnotations,
 		Output: miniLktFullName,
-		Args:   buildArgs,
+		Args:   p.buildArgsDeps,
+		Out:    &stdoutWriter,
+		Err:    &stderrWriter,
+		Log: func(format string, args ...any) {
+			fmt.Fprintf(&stdoutWriter, format+"\n", args...)
+		},
 	}
 	if forceRebuild {
 		buildOptions.NoCache = true
@@ -383,6 +422,10 @@ func build(d string, lktHash, miniLktHash string, replaceImage map[string]string
 		})
 		if err == nil {
 			fmt.Printf("successfully pulled image id: %s\n", imageID)
+			imageID, err = addImageAnnotations(buildStore, sysCtx, imageID, newImageAnnotations)
+			if err != nil {
+				return err
+			}
 			return nil
 		}
 
@@ -412,13 +455,43 @@ func build(d string, lktHash, miniLktHash string, replaceImage map[string]string
 		fmt.Println("dry build selected")
 		return nil
 	}
-	buildImageID, _, err := imagebuildah.BuildDockerfiles(context.TODO(), buildStore, buildOptions, dockerfile)
+	buildImageID, _, err := imagebuildah.BuildDockerfiles(context.TODO(), buildStore, buildOptions, filepath.Join(p.path, "Dockerfile"))
 	if err != nil {
-		return fmt.Errorf("building '%s' failed (%T):\n%+v", d, err, err)
+		return fmt.Errorf("building '%s' failed (%T):\n%+v", p.path, err, err)
 	}
 	fmt.Printf("built image id: %s\n\ttag: %s\n\tannotations: %+v\n", buildImageID, miniLktImageName, newImageAnnotations)
 
 	return nil
+}
+
+// prefixWriter prefixes every line; an incomplete last line is held back
+// until its newline arrives or Flush is called.
+type prefixWriter struct {
+	prefix string
+	w      io.Writer
+	buf    []byte
+}
+
+func (pw *prefixWriter) Write(p []byte) (n int, err error) {
+	pw.buf = append(pw.buf, p...)
+	for {
+		i := bytes.IndexByte(pw.buf, '\n')
+		if i < 0 {
+			return len(p), nil
+		}
+		line := bytes.TrimRight(pw.buf[:i], "\r")
+		if _, err := fmt.Fprintf(pw.w, "%s%s\n", pw.prefix, line); err != nil {
+			return 0, err
+		}
+		pw.buf = pw.buf[i+1:]
+	}
+}
+
+func (pw *prefixWriter) Flush() {
+	if len(pw.buf) > 0 {
+		fmt.Fprintf(pw.w, "%s%s\n", pw.prefix, pw.buf)
+		pw.buf = nil
+	}
 }
 
 // return true if same
@@ -428,10 +501,10 @@ func compareAnnotations(old, new []string) bool {
 	}
 
 	new = slices.DeleteFunc(new, func(line string) bool {
-		return !strings.HasPrefix(line, orgImageAdditionPrefix)
+		return !strings.HasPrefix(line, orgBuildArgPrefix)
 	})
 	old = slices.DeleteFunc(old, func(line string) bool {
-		return !strings.HasPrefix(line, orgImageAdditionPrefix)
+		return !strings.HasPrefix(line, orgBuildArgPrefix)
 	})
 
 	slices.Sort(old)
@@ -460,7 +533,7 @@ func compareAnnotations(old, new []string) bool {
 func qualified(name string) string {
 	named, err := reference.ParseNormalizedNamed(name)
 	if err != nil {
-		panic(err)
+		panic(fmt.Sprintf("parsing %s failed: %v", name, err))
 	}
 	return reference.TagNameOnly(named).String()
 }

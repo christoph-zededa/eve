@@ -203,6 +203,16 @@ func main() {
 			buildMulti(args, forceBuild, dryBuild, keepBuild, proxyOfflineMode)
 		},
 	}
+	dumpBuildInfoCmd := &cobra.Command{
+		Use:  "dump-build <pkg dir>",
+		Args: cobra.MinimumNArgs(1),
+		Run: func(cmd *cobra.Command, args []string) {
+			pkgs := newPkgs(args)
+			for _, pkg := range pkgs {
+				fmt.Printf("%s: %+v\n", pkg.imageName, pkg)
+			}
+		},
+	}
 
 	buildCmd.PersistentFlags().BoolVarP(&forceBuild, "force", "f", false, "set force build")
 	buildCmd.PersistentFlags().BoolVarP(&proxyOfflineMode, "offline", "o", false, "block access to non-cached resources")
@@ -287,7 +297,7 @@ func main() {
 
 	imageCmd.AddCommand(wipeImageCmd, listImageCmd, deleteImageCmd, export2LktCacheCmd, pushImageCmd, pullImageCmd)
 
-	rootCmd.AddCommand(proxyCmd, buildCmd, imageCmd)
+	rootCmd.AddCommand(proxyCmd, buildCmd, dumpBuildInfoCmd, imageCmd)
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)

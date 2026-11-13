@@ -64,7 +64,7 @@ func imageRows(images []imageEntry, now time.Time) []imageRow {
 func additionalImageLabelsFromLabels(sets map[string]string) []string {
 	ret := make([]string, 0)
 	for k := range sets {
-		if strings.HasPrefix(k, orgImageAdditionPrefix) {
+		if strings.HasPrefix(k, orgBuildArgPrefix) {
 			ret = append(ret, k)
 		}
 	}
@@ -100,7 +100,7 @@ func renderImages(w io.Writer, rows []imageRow) error {
 	for _, r := range rows {
 		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", r.Repository, r.Tag, r.ID, r.Created, r.LktLabel)
 		for _, tag := range r.AdditionalImageLabels {
-			if strings.HasPrefix(tag, orgImageAdditionPrefix) {
+			if strings.HasPrefix(tag, orgBuildArgPrefix) {
 				fmt.Fprintf(tw, "\t- %s\n", tag)
 			}
 		}
