@@ -74,7 +74,7 @@ func internalDeps(deps map[string][]string, key string) []string {
 // imageName reduces a reference to its fully qualified name without tag or
 // digest, "docker.io/lfedge/eve-alpine" for "lfedge/eve-alpine:<hash>".
 func imageName(ref string) string {
-	named, err := reference.ParseNormalizedNamed(ref)
+	named, err := reference.ParseNormalizedNamed(strings.TrimSuffix(ref, ":"))
 	if err != nil {
 		return ref
 	}

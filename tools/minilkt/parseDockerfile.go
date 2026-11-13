@@ -73,6 +73,7 @@ func dockerfileImages(r io.Reader, buildArgs map[string]string) ([]string, error
 	var images []string
 	seen := map[string]struct{}{}
 	add := func(name string) {
+		name = strings.TrimSuffix(name, ":")
 		if _, dup := seen[name]; !dup {
 			seen[name] = struct{}{}
 			images = append(images, name)
@@ -155,9 +156,9 @@ func (c *imageRefs) Run(run imagebuilder.Run, _ docker.Config) error {
 // component, and everything after the name as one string: "tag",
 // "tag@sha256:…" or "@sha256:…". It panics on an invalid reference.
 func splitImage(ref string) (org, name, tag string) {
-	named, err := reference.ParseNormalizedNamed(ref)
+	named, err := reference.ParseNormalizedNamed(strings.TrimSuffix(ref, ":"))
 	if err != nil {
-		panic(err)
+		panic(fmt.Sprintf("parsing %s failed: %v", ref, err))
 	}
 	path := reference.Path(named)
 	if i := strings.LastIndex(path, "/"); i >= 0 {
