@@ -5,7 +5,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
+	"io"
+	"runtime"
+
 	"minilkt/dockerproxy"
 	"net"
 	"os"
@@ -370,8 +372,8 @@ func build(p pkg, httpsProxyPort int, certFile, netnsPath string, sysCtx *types.
 		p.buildArgsDeps[k] = v
 	}
 
-	buildArgs["TARGETARCH"] = "amd64"
-	buildArgs["BUILDARCH"] = "amd64"
+	p.buildArgsDeps["TARGETARCH"] = runtime.GOARCH
+	p.buildArgsDeps["BUILDARCH"] = runtime.GOARCH
 
 	stdoutWriter := prefixWriter{
 		prefix: p.imageName + ": ",
