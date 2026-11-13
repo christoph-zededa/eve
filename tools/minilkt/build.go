@@ -412,6 +412,7 @@ func build(p pkg, httpsProxyPort int, certFile, netnsPath string, sysCtx *types.
 		Log: func(format string, args ...any) {
 			fmt.Fprintf(&stdoutWriter, format+"\n", args...)
 		},
+		RuntimeArgs: []string{"--root", filepath.Join(dataDir, "crun")},
 	}
 	if forceRebuild {
 		buildOptions.NoCache = true
