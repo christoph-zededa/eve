@@ -27,5 +27,6 @@ func registriesConf() (*types.SystemContext, error) {
 	return &types.SystemContext{
 		SystemRegistriesConfPath:    path,
 		SystemRegistriesConfDirPath: dropIns,
+		AuthFilePath:                filepath.Join(dataDir, "auth.json"),
 	}, nil
 }
