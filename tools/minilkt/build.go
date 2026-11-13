@@ -574,9 +574,13 @@ exec git submodule update --init --recursive --depth=1
 		panic(err)
 	}
 
-	os.Setenv("GIT_CONFIG_COUNT", "1")
+	os.Setenv("GIT_CONFIG_COUNT", "2")
 	os.Setenv("GIT_CONFIG_KEY_0", "core.hooksPath")
 	os.Setenv("GIT_CONFIG_VALUE_0", filepath.Join(dataDir, "githooks"))
+	// git fetch ends by detaching `git maintenance run --auto`, which would
+	// still be rewriting .git/objects while buildah tars the clone.
+	os.Setenv("GIT_CONFIG_KEY_1", "maintenance.auto")
+	os.Setenv("GIT_CONFIG_VALUE_1", "false")
 	os.Setenv("GIT_CONFIG_GLOBAL", "/dev/null") // keep developer URL rewrites and helpers out of ADD clones
 	os.Setenv("GIT_SSL_CAINFO", certFile)       // git ignores SSL_CERT_FILE; trust the proxy CA explicitly
 }
