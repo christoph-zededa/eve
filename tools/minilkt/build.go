@@ -17,6 +17,7 @@ import (
 	"go.podman.io/buildah"
 	"go.podman.io/buildah/define"
 	"go.podman.io/buildah/imagebuildah"
+	"go.podman.io/common/pkg/auth"
 	"go.podman.io/image/v5/docker/reference"
 	"go.podman.io/image/v5/types"
 	"go.podman.io/storage"
@@ -161,6 +162,18 @@ func buildMulti(ds []string, forceRebuild, dryBuild, keepGoing, offlineBuild boo
 
 	if err := dumpBuildMulti(os.Stdout, deps); err != nil {
 		panic(err)
+func login() error {
+	sysCtx, err := registriesConf()
+	if err != nil {
+		return err
+	}
+	opts := &auth.LoginOptions{
+		StdinPassword: false,
+		Stdout:        os.Stdout,
+		Stdin:         os.Stdin,
+	}
+	return auth.Login(context.TODO(), sysCtx, opts, []string{"docker.io"})
+}
 	}
 	order, err := buildOrder(deps)
 	if err != nil {
