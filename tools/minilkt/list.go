@@ -11,7 +11,6 @@ import (
 
 	units "github.com/docker/go-units"
 	"go.podman.io/image/v5/manifest"
-	"go.podman.io/storage"
 	"go.podman.io/storage/pkg/unshare"
 )
 
@@ -140,24 +139,6 @@ func listImages() ([]imageEntry, error) {
 		})
 	}
 	return entries, nil
-}
-
-// imageLabels reads the labels of the image's config, which both the OCI and
-// the Docker image formats carry; podman inspect reports them as Labels.
-func imageLabels(store storage.Store, id string) map[string]string {
-	blob, err := store.ImageBigData(id, storage.ImageDigestBigDataKey)
-	if err != nil {
-		return nil
-	}
-	configDigest, ok := manifestConfigDigest(blob)
-	if !ok {
-		return nil
-	}
-	config, err := store.ImageBigData(id, configDigest)
-	if err != nil {
-		return nil
-	}
-	return configLabels(config)
 }
 
 // manifestConfigDigest returns the digest of the config blob an image
