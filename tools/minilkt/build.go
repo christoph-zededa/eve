@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"runtime"
+	"sync"
 
 	"minilkt/dockerproxy"
 	"net"
@@ -119,53 +120,66 @@ type pkg struct {
 
 func newPkgs(ds []string) map[string]pkg {
 	pkgs := map[string]*pkg{}
+	var pkgsMutex sync.Mutex
+
+	var wg sync.WaitGroup
 
 	for _, d := range ds {
-		var err error
-		p := pkg{path: d}
+		d := d
+		wg.Go(func() {
+			var err error
+			p := pkg{path: d}
 
-		p.lktHash, err = lktPkgHash(d)
-		if err != nil {
-			panic(err)
-		}
-		p.by, err = parseBuildYAMLDir(d)
-		if err != nil {
-			panic(err)
-		}
-		p.imageName = fmt.Sprintf("%s/%s", p.by.Org, p.by.Image)
+			p.lktHash, err = lktPkgHash(d)
+			if err != nil {
+				panic(err)
+			}
+			p.by, err = parseBuildYAMLDir(d)
+			if err != nil {
+				panic(err)
+			}
+			p.imageName = fmt.Sprintf("%s/%s", p.by.Org, p.by.Image)
 
-		p.dockerFileImages, err = dockerfileImagesFromPath(filepath.Join(p.path, "Dockerfile"), map[string]string{})
-		if err != nil {
-			panic(err)
-		}
+			p.dockerFileImages, err = dockerfileImagesFromPath(filepath.Join(p.path, "Dockerfile"), map[string]string{})
+			if err != nil {
+				panic(err)
+			}
 
-		pkgs[p.imageName] = &p
+			pkgsMutex.Lock()
+			pkgs[p.imageName] = &p
+			pkgsMutex.Unlock()
+		})
 	}
+
+	wg.Wait()
 
 	for _, p := range pkgs {
-		var err error
+		p := p
+		wg.Go(func() {
+			var err error
 
-		depPkgs := make([]*pkg, 0)
-		p.pkgDependencies = make([]string, 0)
-		for _, dep := range p.dockerFileImages {
-			pDep, found := pkgs[dep]
-			if !found {
-				continue
-				// panic("could not find " + dep)
+			depPkgs := make([]*pkg, 0)
+			p.pkgDependencies = make([]string, 0)
+			for _, dep := range p.dockerFileImages {
+				pDep, found := pkgs[dep]
+				if !found {
+					continue
+					// panic("could not find " + dep)
+				}
+				p.pkgDependencies = append(p.pkgDependencies, pDep.imageName)
+				depPkgs = append(depPkgs, pDep)
 			}
-			p.pkgDependencies = append(p.pkgDependencies, pDep.imageName)
-			depPkgs = append(depPkgs, pDep)
-		}
-		extraPaths := make([]string, 0, len(depPkgs))
-		for _, p := range depPkgs {
-			extraPaths = append(extraPaths, p.path)
-		}
-		p.miniLktHash, err = lktPkgHash(p.path, extraPaths...)
-		if err != nil {
-			panic(err)
-		}
-
+			extraPaths := make([]string, 0, len(depPkgs))
+			for _, p := range depPkgs {
+				extraPaths = append(extraPaths, p.path)
+			}
+			p.miniLktHash, err = lktPkgHash(p.path, extraPaths...)
+			if err != nil {
+				panic(err)
+			}
+		})
 	}
+	wg.Wait()
 
 	// iterate again as we need the buildArgs
 	for _, p := range pkgs {
