@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"runtime"
 	"sync"
 
@@ -20,8 +21,10 @@ import (
 	"go.podman.io/buildah"
 	"go.podman.io/buildah/define"
 	"go.podman.io/buildah/imagebuildah"
+	"go.podman.io/common/libimage/manifests"
 	"go.podman.io/common/pkg/auth"
 	"go.podman.io/image/v5/docker/reference"
+	istorage "go.podman.io/image/v5/storage"
 	"go.podman.io/image/v5/types"
 	"go.podman.io/storage"
 	"go.podman.io/storage/pkg/homedir"
@@ -112,13 +115,19 @@ type pkg struct {
 	path             string
 	lktHash          string
 	miniLktHash      string
-	pkgDependencies  []string
-	dockerFileImages []string
+	pkgDependencies  map[string]struct{}
+	dockerFileImages []dockerfileImage
 	by               *BuildYAML
 	buildArgsDeps    map[string]string
+	targetArch       string
 }
 
-func newPkgs(ds []string) map[string]pkg {
+// newPkgs returns the builds the packages in ds need for targetArch: every
+// package for targetArch, and in a cross build also, for the build
+// architecture, the packages that stages start from with
+// --platform=$BUILDPLATFORM and the packages those are built from. A build's
+// imageName, the key, is "<arch>/<image>"; pkgDependencies name builds by it.
+func newPkgs(ds []string, targetArch string) map[string]pkg {
 	pkgs := map[string]*pkg{}
 	var pkgsMutex sync.Mutex
 
@@ -140,7 +149,8 @@ func newPkgs(ds []string) map[string]pkg {
 			}
 			p.imageName = fmt.Sprintf("%s/%s", p.by.Org, p.by.Image)
 
-			p.dockerFileImages, err = dockerfileImagesFromPath(filepath.Join(p.path, "Dockerfile"), map[string]string{})
+			args := map[string]string{"TARGETPLATFORM": "linux/" + targetArch}
+			p.dockerFileImages, err = dockerfileImagesFromPath(filepath.Join(p.path, "Dockerfile"), args)
 			if err != nil {
 				panic(err)
 			}
@@ -158,20 +168,18 @@ func newPkgs(ds []string) map[string]pkg {
 		wg.Go(func() {
 			var err error
 
-			depPkgs := make([]*pkg, 0)
-			p.pkgDependencies = make([]string, 0)
+			p.pkgDependencies = map[string]struct{}{}
 			for _, dep := range p.dockerFileImages {
-				pDep, found := pkgs[dep]
+				pDep, found := pkgs[dep.name]
 				if !found {
 					continue
 					// panic("could not find " + dep)
 				}
-				p.pkgDependencies = append(p.pkgDependencies, pDep.imageName)
-				depPkgs = append(depPkgs, pDep)
+				p.pkgDependencies[pDep.imageName] = struct{}{}
 			}
-			extraPaths := make([]string, 0, len(depPkgs))
-			for _, p := range depPkgs {
-				extraPaths = append(extraPaths, p.path)
+			extraPaths := make([]string, 0, len(p.pkgDependencies))
+			for dep := range p.pkgDependencies {
+				extraPaths = append(extraPaths, pkgs[dep].path)
 			}
 			p.miniLktHash, err = lktPkgHash(p.path, extraPaths...)
 			if err != nil {
@@ -184,7 +192,7 @@ func newPkgs(ds []string) map[string]pkg {
 	// iterate again as we need the buildArgs
 	for _, p := range pkgs {
 		p.buildArgsDeps = make(map[string]string)
-		for _, pDepName := range p.pkgDependencies {
+		for pDepName := range p.pkgDependencies {
 			pDep, found := pkgs[pDepName]
 			if !found {
 				panic("could not find " + pDepName)
@@ -202,8 +210,33 @@ func newPkgs(ds []string) map[string]pkg {
 	}
 
 	pkgsMap := make(map[string]pkg)
+	var add func(p *pkg, arch string)
+	add = func(p *pkg, arch string) {
+		key := arch + "/" + p.imageName
+		if _, added := pkgsMap[key]; added {
+			return
+		}
+		b := *p
+		b.imageName = key
+		b.targetArch = arch
+		b.pkgDependencies = map[string]struct{}{}
+		b.buildArgsDeps = maps.Clone(p.buildArgsDeps) // build adds to it
+		pkgsMap[key] = b
+		for _, image := range p.dockerFileImages {
+			dep, isPkg := pkgs[image.name]
+			if !isPkg {
+				continue
+			}
+			depArch := arch
+			if image.buildPlatform {
+				depArch = runtime.GOARCH
+			}
+			b.pkgDependencies[depArch+"/"+image.name] = struct{}{}
+			add(dep, depArch)
+		}
+	}
 	for _, p := range pkgs {
-		pkgsMap[p.imageName] = *p
+		add(p, targetArch)
 	}
 	return pkgsMap
 }
@@ -221,18 +254,35 @@ func login() error {
 	return auth.Login(context.TODO(), sysCtx, opts, []string{"docker.io"})
 }
 
-func buildMulti(ds []string, forceRebuild, dryBuild, keepGoing, offlineBuild bool) {
+func buildMulti(rootFSYamlPath string, ds []string, targetArch string, forceRebuild, dryBuild, keepGoing, offlineBuild bool) {
 	unshare.MaybeReexecUsingUserNamespace(false)
 
+	ry := parseRootFSYaml(rootFSYamlPath)
+	ryImgsMap := make(map[string]struct{})
+	for _, img := range ry.images() {
+		archImg := fmt.Sprintf("%s/%s", targetArch, img)
+		ryImgsMap[archImg] = struct{}{}
+	}
 	// err := login()
 	// if err != nil {
 	// 	panic(err)
 	// }
-	pkgs := newPkgs(ds)
+	pkgs := newPkgs(ds, targetArch)
+	relevantPkgs := make(map[string]pkg)
+	for _, pkg := range pkgs {
+		_, found := ryImgsMap[pkg.imageName]
+		if !found {
+			continue
+		}
+		relevantPkgs[pkg.imageName] = pkg
+		for depImg := range pkg.pkgDependencies {
+			relevantPkgs[depImg] = pkgs[depImg]
+		}
+	}
 
 	deps := map[string][]string{}
-	for _, p := range pkgs {
-		deps[p.imageName] = p.pkgDependencies
+	for _, p := range relevantPkgs {
+		deps[p.imageName] = slices.Sorted(maps.Keys(p.pkgDependencies))
 	}
 	order, err := buildOrder(deps)
 	if err != nil {
@@ -281,6 +331,7 @@ func buildMulti(ds []string, forceRebuild, dryBuild, keepGoing, offlineBuild boo
 	if err != nil {
 		panic(err)
 	}
+	sysCtx.OSChoice = "linux"
 
 	for _, image := range order {
 		pkg := pkgs[image]
@@ -386,20 +437,32 @@ func build(p pkg, httpsProxyPort int, certFile, netnsPath string, sysCtx *types.
 		p.buildArgsDeps[k] = v
 	}
 
-	p.buildArgsDeps["TARGETARCH"] = runtime.GOARCH
+	// targetArch := runtime.GOARCH
+	targetArch := p.targetArch
+	archCtx := *sysCtx
+	archCtx.ArchitectureChoice = targetArch
+	sysCtx = &archCtx
+	p.buildArgsDeps["TARGETARCH"] = targetArch
+	// p.buildArgsDeps["BUILDARCH"] = runtime.GOARCH
 	p.buildArgsDeps["BUILDARCH"] = runtime.GOARCH
+	// p.buildArgsDeps["BUILDPLATFORM"] = "linux/" + runtime.GOARCH
 
+	logImageName := fmt.Sprintf("%s/%s", p.by.Org, p.by.Image)
+	if targetArch != runtime.GOARCH {
+		logImageName += fmt.Sprintf(" (%s)", targetArch)
+	}
 	stdoutWriter := prefixWriter{
-		prefix: p.imageName + ": ",
+		prefix: logImageName + ": ",
 		w:      os.Stdout,
 	}
 	stderrWriter := prefixWriter{
-		prefix: "!!ERROR " + p.imageName + ": ",
+		prefix: "[!E] " + logImageName + ": ",
 		w:      os.Stdout,
 	}
 	defer stdoutWriter.Flush()
 	defer stderrWriter.Flush()
 	buildOptions := define.BuildOptions{
+		Architecture:     targetArch,
 		ContextDirectory: p.path,
 		NamespaceOptions: []define.NamespaceOption{
 			{Name: string(specs.NetworkNamespace), Path: netnsPath},
@@ -419,7 +482,7 @@ func build(p pkg, httpsProxyPort int, certFile, netnsPath string, sysCtx *types.
 		// AdditionalBuildContexts: additionalBuildCtx,
 		// AdditionalTags:          []string{imageName},
 		Labels: newImageAnnotations,
-		Output: miniLktFullName,
+		Output: miniLktFullName + "-" + targetArch,
 		Args:   p.buildArgsDeps,
 		Out:    &stdoutWriter,
 		Err:    &stderrWriter,
@@ -478,7 +541,32 @@ func build(p pkg, httpsProxyPort int, certFile, netnsPath string, sysCtx *types.
 	}
 	fmt.Printf("built image id: %s\n\ttag: %s\n\tannotations: %+v\n", buildImageID, miniLktImageName, newImageAnnotations)
 
+	if err := addToManifestList(buildStore, miniLktFullName, buildImageID); err != nil {
+		return fmt.Errorf("adding %s to the manifest list %s failed: %v", buildImageID, miniLktFullName, err)
+	}
 	return nil
+}
+
+// addToManifestList puts the image into the manifest list name, creating the
+// list if there is none, so that a FROM of name gets the image of the
+// architecture the stage asks for.
+func addToManifestList(store storage.Store, name, imageID string) error {
+	listID, list, err := manifests.LoadFromImage(store, name)
+	if errors.Is(err, storage.ErrImageUnknown) {
+		list, err = manifests.Create(), nil
+	}
+	if err != nil {
+		return err
+	}
+	ref, err := istorage.Transport.ParseStoreReference(store, imageID)
+	if err != nil {
+		return err
+	}
+	if _, err := list.Add(context.TODO(), nil, ref, false); err != nil {
+		return err
+	}
+	_, err = list.SaveToImage(store, listID, []string{name}, "")
+	return err
 }
 
 // prefixWriter prefixes every line; an incomplete last line is held back

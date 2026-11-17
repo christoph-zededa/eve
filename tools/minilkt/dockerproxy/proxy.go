@@ -21,6 +21,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -62,6 +63,7 @@ type Proxy struct {
 	cache     *cache
 	transport *http.Transport
 	excluded  map[string]struct{} // hosts served live, never from the cache
+	redirects sync.Map            // URL a cached redirect sent a client to -> that redirect
 
 	mu     sync.Mutex
 	srv    *http.Server
@@ -223,7 +225,7 @@ type reqState struct {
 }
 
 func (p *Proxy) onRequest(req *http.Request, ctx *goproxy.ProxyCtx) (*http.Request, *http.Response) {
-	if p.isExcluded(req) {
+	if p.isExcluded(req) && !p.BlockExtern {
 		return req, nil
 	}
 	req = req.WithContext(context.WithoutCancel(req.Context())) // needed for busybox wget
@@ -241,7 +243,20 @@ func (p *Proxy) onRequest(req *http.Request, ctx *goproxy.ProxyCtx) (*http.Reque
 		log.Printf("dockerproxy: cache lookup for %s %s: %v", req.Method, req.URL, err)
 		return req, nil
 	}
+	if (resp == nil || resp.StatusCode == 403) && p.refreshRedirect(req) {
+		entry, resp = p.cache.path(req), nil // req names the new URL now
+	}
+	if resp != nil && resp.StatusCode == 403 {
+		ctx.UserData = &reqState{entry: entry}
+		os.RemoveAll(entry)
+		return req, nil
+	}
 	if resp != nil {
+		if loc, err := resp.Location(); err == nil && req.Method == http.MethodGet {
+			origin := req.Clone(req.Context())
+			origin.Body = nil
+			p.redirects.Store(asIntercepted(loc).String(), redirect{entry, origin})
+		}
 		p.logf("cache hit  %s %s", req.Method, req.URL)
 		ctx.UserData = &reqState{fromCache: true}
 		return req, resp
@@ -254,6 +269,50 @@ func (p *Proxy) onRequest(req *http.Request, ctx *goproxy.ProxyCtx) (*http.Reque
 	p.logf("cache miss %s %s", req.Method, req.URL)
 	ctx.UserData = &reqState{entry: entry}
 	return req, nil
+}
+
+// redirect is a cached redirect the proxy answered with: its entry and the
+// request it answered.
+type redirect struct {
+	entry string
+	req   *http.Request
+}
+
+// refreshRedirect replaces the cached redirect that sent the client to req,
+// which is not cached, with a new copy and points req at the URL in it: the
+// signed URL in a cached redirect expires.
+func (p *Proxy) refreshRedirect(req *http.Request) bool {
+	from, ok := p.redirects.Load(req.URL.String())
+	if !ok || p.BlockExtern {
+		return false
+	}
+	r := from.(redirect)
+	resp, err := p.transport.RoundTrip(r.req)
+	if err != nil {
+		return false
+	}
+	loc, err := resp.Location()
+	if err != nil {
+		resp.Body.Close()
+		return false
+	}
+	p.logf("cache refresh %s %s", r.req.Method, r.req.URL)
+	os.RemoveAll(r.entry)
+	if err := p.cache.store(r.entry, resp); err != nil {
+		return false
+	}
+	req.Host = loc.Host
+	req.URL = asIntercepted(loc)
+	return true
+}
+
+// asIntercepted spells out the https port of a URL from a Location header,
+// like the URL of the intercepted request that follows it.
+func asIntercepted(u *url.URL) *url.URL {
+	if u.Scheme == "https" && u.Port() == "" {
+		u.Host += ":443"
+	}
+	return u
 }
 
 // logf writes a line when Verbose is set.

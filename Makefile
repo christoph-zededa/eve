@@ -1078,9 +1078,9 @@ $(LIVE).parallels: $(LIVE).raw
 pkgs: RESCAN_DEPS=
 pkgs: $(LINUXKIT) $(PKGS) $(LK_POSSIBLE_BUILD_ARG_TARGETS)
 	@echo Done building packages
-newpkgs:
+newpkgs: images/rootfs.yml
 	go build -C tools/minilkt
-	./tools/minilkt/minilkt build $(PKGS)
+	./tools/minilkt/minilkt build --target-arch $(ZARCH) images/rootfs.yml $(addprefix pkg/,$(PKGS_HOSTARCH)) $(PKGS)
 	./tools/minilkt/minilkt i e2l
 	@echo Done building packages $(PKGS)
 

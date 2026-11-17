@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"cmp"
 	"fmt"
 	"io"
 	"os"
@@ -44,12 +45,20 @@ func dump(n *parser.Node, depth int) {
 
 }
 
+// dockerfileImage is an image a Dockerfile pulls, for the target platform or,
+// in a stage that has FROM --platform=$BUILDPLATFORM, for the build platform.
+type dockerfileImage struct {
+	name          string
+	buildPlatform bool
+}
+
 // dockerfileImagesFromPath returns every image the Dockerfile at path would pull, in
 // order of first mention and without repeats: the base of each stage, and the
 // sources of COPY --from and RUN --mount=from=... that do not name a stage.
+// An image pulled for both platforms is listed once for each.
 // ARG references in those names are resolved from buildArgs and the file's
 // own defaults, as a build would. scratch is not an image and is left out.
-func dockerfileImagesFromPath(path string, buildArgs map[string]string) ([]string, error) {
+func dockerfileImagesFromPath(path string, buildArgs map[string]string) ([]dockerfileImage, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
@@ -61,22 +70,24 @@ func dockerfileImagesFromPath(path string, buildArgs map[string]string) ([]strin
 	return images, nil
 }
 
-func dockerfileImages(r io.Reader, buildArgs map[string]string) ([]string, error) {
+func dockerfileImages(r io.Reader, buildArgs map[string]string) ([]dockerfileImage, error) {
 	node, err := imagebuilder.ParseDockerfile(r)
 	if err != nil {
 		return nil, err
 	}
-	stages, err := imagebuilder.NewStages(node, imagebuilder.NewBuilder(buildArgs))
+	b := imagebuilder.NewBuilder(buildArgs)
+	buildPlatform := cmp.Or(buildArgs["BUILDPLATFORM"], b.BuiltinArgDefaults["BUILDPLATFORM"])
+	stages, err := imagebuilder.NewStages(node, b)
 	if err != nil {
 		return nil, err
 	}
-	var images []string
-	seen := map[string]struct{}{}
-	add := func(name string) {
-		name = strings.TrimSuffix(name, ":")
-		if _, dup := seen[name]; !dup {
-			seen[name] = struct{}{}
-			images = append(images, name)
+	var images []dockerfileImage
+	seen := map[dockerfileImage]struct{}{}
+	add := func(name string, buildPlatform bool) {
+		image := dockerfileImage{name: strings.TrimSuffix(name, ":"), buildPlatform: buildPlatform}
+		if _, dup := seen[image]; !dup {
+			seen[image] = struct{}{}
+			images = append(images, image)
 		}
 	}
 	for _, stage := range stages {
@@ -88,7 +99,7 @@ func dockerfileImages(r io.Reader, buildArgs map[string]string) ([]string, error
 			return nil, fmt.Errorf("stage %d: FROM resolves to an empty name", stage.Position)
 		}
 		if base != "scratch" && !isStage(stages, base, stage.Position) {
-			add(base)
+			add(base, stage.Builder.Platform == buildPlatform)
 		}
 		// Running the stage's instructions through a recording executor
 		// resolves ARG and ENV the way a build does before the names in
@@ -105,7 +116,7 @@ func dockerfileImages(r io.Reader, buildArgs map[string]string) ([]string, error
 		}
 		for _, name := range refs.names {
 			if !isStage(stages, name, stage.Position) {
-				add(name)
+				add(name, stage.Builder.Platform == buildPlatform)
 			}
 		}
 	}

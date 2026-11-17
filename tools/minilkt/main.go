@@ -7,6 +7,7 @@ import (
 	"minilkt/dockerproxy"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -196,18 +197,19 @@ func main() {
 	forceBuild := false
 	dryBuild := false
 	keepBuild := false
+	targetArch := runtime.GOARCH
 	buildCmd := &cobra.Command{
-		Use:  "build <pkg dir>",
-		Args: cobra.MinimumNArgs(1),
+		Use:  "build <rootfs.yml> <pkg dir1> <pkd dir2> ...",
+		Args: cobra.MinimumNArgs(2),
 		Run: func(cmd *cobra.Command, args []string) {
-			buildMulti(args, forceBuild, dryBuild, keepBuild, proxyOfflineMode)
+			buildMulti(args[0], args[1:], targetArch, forceBuild, dryBuild, keepBuild, proxyOfflineMode)
 		},
 	}
 	dumpBuildInfoCmd := &cobra.Command{
 		Use:  "dump-build <pkg dir>",
 		Args: cobra.MinimumNArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
-			pkgs := newPkgs(args)
+			pkgs := newPkgs(args, targetArch)
 			for _, pkg := range pkgs {
 				fmt.Printf("%s: %+v\n", pkg.imageName, pkg)
 			}
@@ -218,8 +220,11 @@ func main() {
 	buildCmd.PersistentFlags().BoolVarP(&proxyOfflineMode, "offline", "o", false, "block access to non-cached resources")
 	buildCmd.PersistentFlags().BoolVarP(&dryBuild, "dry", "d", false, "set dry build")
 	buildCmd.PersistentFlags().BoolVarP(&keepBuild, "keep-going", "k", false, "keep going building")
+	buildCmd.PersistentFlags().StringVarP(&targetArch, "target-arch", "t", runtime.GOARCH, "target architecture (amd64/arm64)")
+	dumpBuildInfoCmd.PersistentFlags().StringVarP(&targetArch, "target-arch", "t", runtime.GOARCH, "target architecture (amd64/arm64)")
 
 	var quiet bool
+	var all bool
 	listImageCmd := &cobra.Command{
 		Use:          "list",
 		Aliases:      []string{"ls"},
@@ -227,7 +232,7 @@ func main() {
 		Args:         cobra.NoArgs,
 		SilenceUsage: true,
 		Run: func(cmd *cobra.Command, args []string) {
-			imgs, err := listImages()
+			imgs, err := listImages(all)
 			if err != nil {
 				panic(err)
 			}
@@ -241,6 +246,7 @@ func main() {
 		},
 	}
 	listImageCmd.PersistentFlags().BoolVarP(&quiet, "quiet", "q", false, "quiet")
+	listImageCmd.PersistentFlags().BoolVarP(&all, "all", "a", false, "all")
 	pushImageCmd := &cobra.Command{
 		Use:          "push <id> <org> <name>",
 		Aliases:      []string{},

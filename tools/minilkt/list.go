@@ -97,7 +97,11 @@ func renderImages(w io.Writer, rows []imageRow) error {
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(tw, "REPOSITORY\tTAG\tIMAGE ID\tCREATED\tLKT LABEL\tMINILKT LABELS")
 	for _, r := range rows {
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", r.Repository, r.Tag, r.ID, r.Created, r.LktLabel)
+		repo := r.Repository
+		if repo == noneValue {
+			repo = "<>"
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", repo, r.Tag, r.ID, r.Created, r.LktLabel)
 		for _, tag := range r.AdditionalImageLabels {
 			if strings.HasPrefix(tag, orgBuildArgPrefix) {
 				fmt.Fprintf(tw, "\t- %s\n", tag)
@@ -108,7 +112,7 @@ func renderImages(w io.Writer, rows []imageRow) error {
 }
 
 // listImages prints the images in the store that build writes to.
-func listImages() ([]imageEntry, error) {
+func listImages(all bool) ([]imageEntry, error) {
 	unshare.MaybeReexecUsingUserNamespace(false)
 
 	store, err := openStore()
@@ -123,12 +127,14 @@ func listImages() ([]imageEntry, error) {
 	}
 	entries := make([]imageEntry, 0, len(images))
 	for _, img := range images {
-		if len(img.Names) == 0 {
-			continue
-		}
-		repo, tag := splitRepoTag(img.Names[0])
-		if tag == noneValue || repo == noneValue {
-			continue
+		if !all {
+			if len(img.Names) == 0 {
+				continue
+			}
+			repo, tag := splitRepoTag(img.Names[0])
+			if tag == noneValue || repo == noneValue {
+				continue
+			}
 		}
 		labels := imageLabels(store, img.ID)
 		entries = append(entries, imageEntry{

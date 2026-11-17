@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"fmt"
-	"io"
 	"os"
 	"path"
 	"path/filepath"
@@ -18,18 +17,17 @@ import (
 // pkglib accepts, with the same keys, defaults and strictness, so a file that
 // "linuxkit pkg build" rejects is rejected here too.
 type BuildYAML struct {
-	Image        string       `yaml:"image"`
-	Org          string       `yaml:"org"`
-	Tag          string       `yaml:"tag,omitempty"` // text/template over {{.Hash}}
-	Dockerfile   string       `yaml:"dockerfile"`
-	Arches       []string     `yaml:"arches"`
-	ExtraSources []string     `yaml:"extra-sources"` // "src:dst", src relative to the package dir
-	GitRepo      string       `yaml:"gitrepo"`
-	Network      bool         `yaml:"network"`
-	DisableCache bool         `yaml:"disable-cache"`
-	Config       *ImageConfig `yaml:"config"`
-	BuildArgs    []string     `yaml:"buildArgs,omitempty"`
-	Depends      Depends      `yaml:"depends"`
+	Image        string   `yaml:"image"`
+	Org          string   `yaml:"org"`
+	Tag          string   `yaml:"tag,omitempty"` // text/template over {{.Hash}}
+	Dockerfile   string   `yaml:"dockerfile"`
+	Arches       []string `yaml:"arches"`
+	ExtraSources []string `yaml:"extra-sources"` // "src:dst", src relative to the package dir
+	GitRepo      string   `yaml:"gitrepo"`
+	Network      bool     `yaml:"network"`
+	DisableCache bool     `yaml:"disable-cache"`
+	BuildArgs    []string `yaml:"buildArgs,omitempty"`
+	Depends      Depends  `yaml:"depends"`
 }
 
 // Depends declares docker images a package needs saved into its build context.
@@ -43,48 +41,6 @@ type DockerImageDepends struct {
 	Target    string   `yaml:"target"`
 	FromFile  string   `yaml:"from-file"`
 	List      []string `yaml:"list"`
-}
-
-// ImageConfig is the "config:" section, which linuxkit stores verbatim as the
-// org.mobyproject.config label of the built image and later turns into the
-// container's OCI spec. It mirrors linuxkit's moby.ImageConfig field by field,
-// pointers included, so the JSON label comes out identical.
-type ImageConfig struct {
-	Capabilities      *[]string               `yaml:"capabilities,omitempty" json:"capabilities,omitempty"`
-	CapabilitiesAdd   *[]string               `yaml:"capabilities.add,omitempty" json:"capabilities.add,omitempty"`
-	Ambient           *[]string               `yaml:"ambient,omitempty" json:"ambient,omitempty"`
-	Mounts            *[]specs.Mount          `yaml:"mounts,omitempty" json:"mounts,omitempty"`
-	Binds             *[]string               `yaml:"binds,omitempty" json:"binds,omitempty"`
-	BindsAdd          *[]string               `yaml:"binds.add,omitempty" json:"binds.add,omitempty"`
-	Devices           *[]Device               `yaml:"devices,omitempty" json:"devices,omitempty"`
-	Tmpfs             *[]string               `yaml:"tmpfs,omitempty" json:"tmpfs,omitempty"`
-	Command           *[]string               `yaml:"command,omitempty" json:"command,omitempty"`
-	Env               *[]string               `yaml:"env,omitempty" json:"env,omitempty"`
-	Cwd               string                  `yaml:"cwd,omitempty" json:"cwd,omitempty"`
-	Net               string                  `yaml:"net,omitempty" json:"net,omitempty"`
-	Pid               string                  `yaml:"pid,omitempty" json:"pid,omitempty"`
-	Ipc               string                  `yaml:"ipc,omitempty" json:"ipc,omitempty"`
-	Uts               string                  `yaml:"uts,omitempty" json:"uts,omitempty"`
-	Userns            string                  `yaml:"userns,omitempty" json:"userns,omitempty"`
-	Hostname          string                  `yaml:"hostname,omitempty" json:"hostname,omitempty"`
-	Readonly          *bool                   `yaml:"readonly,omitempty" json:"readonly,omitempty"`
-	MaskedPaths       *[]string               `yaml:"maskedPaths,omitempty" json:"maskedPaths,omitempty"`
-	ReadonlyPaths     *[]string               `yaml:"readonlyPaths,omitempty" json:"readonlyPaths,omitempty"`
-	UID               *interface{}            `yaml:"uid,omitempty" json:"uid,omitempty"`
-	GID               *interface{}            `yaml:"gid,omitempty" json:"gid,omitempty"`
-	AdditionalGids    *[]interface{}          `yaml:"additionalGids,omitempty" json:"additionalGids,omitempty"`
-	NoNewPrivileges   *bool                   `yaml:"noNewPrivileges,omitempty" json:"noNewPrivileges,omitempty"`
-	OOMScoreAdj       *int                    `yaml:"oomScoreAdj,omitempty" json:"oomScoreAdj,omitempty"`
-	RootfsPropagation *string                 `yaml:"rootfsPropagation,omitempty" json:"rootfsPropagation,omitempty"`
-	CgroupsPath       *string                 `yaml:"cgroupsPath,omitempty" json:"cgroupsPath,omitempty"`
-	Resources         *specs.LinuxResources   `yaml:"resources,omitempty" json:"resources,omitempty"`
-	Sysctl            *map[string]string      `yaml:"sysctl,omitempty" json:"sysctl,omitempty"`
-	Rlimits           *[]string               `yaml:"rlimits,omitempty" json:"rlimits,omitempty"`
-	UIDMappings       *[]specs.LinuxIDMapping `yaml:"uidMappings,omitempty" json:"uidMappings,omitempty"`
-	GIDMappings       *[]specs.LinuxIDMapping `yaml:"gidMappings,omitempty" json:"gidMappings,omitempty"`
-	Annotations       *map[string]string      `yaml:"annotations,omitempty" json:"annotations,omitempty"`
-
-	Runtime *Runtime `yaml:"runtime,omitempty" json:"runtime,omitempty"`
 }
 
 // Device is a device node to create in the container.
@@ -137,43 +93,15 @@ func newBuildYAML() *BuildYAML {
 }
 
 func parseBuildYAMLDir(p string) (*BuildYAML, error) {
-	fp, err := os.Open(filepath.Join(p, "build.yml"))
+	bs, err := os.ReadFile(filepath.Join(p, "build.yml"))
 	if err != nil {
 		return nil, err
 	}
 
-	defer fp.Close()
+	by := &BuildYAML{}
+	err = yaml.Unmarshal(bs, by)
 
-	return ParseBuildYAML(fp)
-}
-
-// ParseBuildYAML decodes one build.yml document on top of linuxkit's
-// defaults. Unknown keys anywhere in the document are an error.
-func ParseBuildYAML(r io.Reader) (*BuildYAML, error) {
-	b := newBuildYAML()
-	dec := yaml.NewDecoder(r)
-	dec.KnownFields(true)
-	if err := dec.Decode(b); err != nil {
-		return nil, err
-	}
-	if b.Image == "" {
-		return nil, fmt.Errorf("image field is required")
-	}
-	return b, nil
-}
-
-// ReadBuildYAML parses the build file at path.
-func ReadBuildYAML(path string) (*BuildYAML, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-	b, err := ParseBuildYAML(f)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", path, err)
-	}
-	return b, nil
+	return by, err
 }
 
 // ImageName returns the image name without a tag, org/image.
@@ -230,41 +158,6 @@ type Pkg struct {
 	Build    *BuildYAML
 	Hash     string // what {{.Hash}} expands to, see PkgHash
 	Tag      string // rendered tag template
-}
-
-// LoadPkg reads dir's build file and resolves the package hash and tag.
-// buildYML is a file name relative to dir, like linuxkit's --build-yml;
-// "" means build.yml.
-func LoadPkg(dir, buildYML string) (*Pkg, error) {
-	abs, err := filepath.Abs(dir)
-	if err != nil {
-		return nil, err
-	}
-	if buildYML == "" {
-		buildYML = "build.yml"
-	}
-	ymlPath := filepath.Join(abs, buildYML)
-	b, err := ReadBuildYAML(ymlPath)
-	if err != nil {
-		return nil, err
-	}
-	sources, err := b.Sources(abs)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", ymlPath, err)
-	}
-	var extra []string
-	for _, s := range sources[1:] {
-		extra = append(extra, s.Src)
-	}
-	hash, err := lktPkgHash(abs, extra...)
-	if err != nil {
-		return nil, err
-	}
-	tag, err := b.RenderTag(hash)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", ymlPath, err)
-	}
-	return &Pkg{Dir: abs, BuildYML: ymlPath, Build: b, Hash: hash, Tag: tag}, nil
 }
 
 // Ref returns the full image reference, org/image:tag.

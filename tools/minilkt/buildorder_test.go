@@ -121,7 +121,7 @@ func TestBuildOrderForEVEPackages(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		deps[b.ImageName()] = images
+		deps[b.ImageName()] = imageNames(images)
 	}
 	order, err := buildOrder(deps)
 	if err != nil {

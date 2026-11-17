@@ -15,7 +15,15 @@ func images(t *testing.T, dockerfile string, args map[string]string) []string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return got
+	return imageNames(got)
+}
+
+func imageNames(images []dockerfileImage) []string {
+	var names []string
+	for _, image := range images {
+		names = append(names, image.name)
+	}
+	return names
 }
 
 func TestDockerfileImagesSingleFrom(t *testing.T) {
@@ -84,6 +92,31 @@ func TestDockerfileImagesDeduplicates(t *testing.T) {
 	}
 }
 
+func TestDockerfileImagesMarksBuildPlatformImages(t *testing.T) {
+	got, err := dockerfileImages(strings.NewReader(`
+FROM --platform=$BUILDPLATFORM lfedge/eve-alpine:1 AS build
+COPY --from=lfedge/eve-tools:1 /t /t
+FROM --platform=${TARGETPLATFORM} lfedge/eve-fw:1 AS fw
+FROM lfedge/eve-alpine:1 AS target
+FROM lfedge/eve-debug:1
+COPY --from=lfedge/eve-cross-compilers:1 /a /a
+`), map[string]string{"TARGETPLATFORM": "linux/riscv64"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []dockerfileImage{
+		{name: "lfedge/eve-alpine:1", buildPlatform: true},
+		{name: "lfedge/eve-tools:1", buildPlatform: true},
+		{name: "lfedge/eve-fw:1"},
+		{name: "lfedge/eve-alpine:1"},
+		{name: "lfedge/eve-debug:1"},
+		{name: "lfedge/eve-cross-compilers:1"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %+v, want %+v", got, want)
+	}
+}
+
 func TestDockerfileImagesFailsOnUnresolvableBase(t *testing.T) {
 	if _, err := dockerfileImages(strings.NewReader("ARG BASE\nFROM ${BASE}\n"), nil); err == nil {
 		t.Fatal("expected an error for a FROM that resolves to nothing")
@@ -143,8 +176,8 @@ func TestDockerfileImagesForEVEPackages(t *testing.T) {
 			t.Errorf("%s: no images found", dockerfile)
 		}
 		for _, image := range got {
-			if _, err := reference.ParseNormalizedNamed(image); err != nil {
-				t.Errorf("%s: %q is not an image reference: %v", dockerfile, image, err)
+			if _, err := reference.ParseNormalizedNamed(image.name); err != nil {
+				t.Errorf("%s: %q is not an image reference: %v", dockerfile, image.name, err)
 			}
 		}
 	}
@@ -159,7 +192,7 @@ func TestDockerfileImagesForEVEAlpine(t *testing.T) {
 		"lfedge/eve-alpine:1f744180283ffb4eabcc3862531aeacf1de886b3",
 		"lfedge/eve-alpine-base:77cc1495c875b7468dbf4123210abf86a1ffb852-07a6e7df6",
 	}
-	if !reflect.DeepEqual(got, want) {
+	if got := imageNames(got); !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %v, want %v", got, want)
 	}
 }
@@ -172,7 +205,7 @@ func TestDockerfileImagesForEVEFirmwareSelectsStageByArg(t *testing.T) {
 		if err != nil {
 			t.Skip("not inside an EVE checkout")
 		}
-		if want := []string{"lfedge/eve-alpine:ef20bcb617db5545765f4d7486621cf606e5595e"}; !reflect.DeepEqual(got, want) {
+		if got, want := imageNames(got), []string{"lfedge/eve-alpine:ef20bcb617db5545765f4d7486621cf606e5595e"}; !reflect.DeepEqual(got, want) {
 			t.Fatalf("PLATFORM=%s: got %v, want %v", platform, got, want)
 		}
 	}
