@@ -26,12 +26,65 @@ func deleteImage(ids ...string) error {
 	defer func() { _, _ = store.Shutdown(false) }()
 
 	for i, id := range ids {
-		fmt.Printf("[%d/%d] deleting %s ...\n", i, len(ids), id)
+		fmt.Printf("[%d/%d] deleting image %s ...\n", i+1, len(ids), id)
 		errDel := store.Delete(id)
 		err = errors.Join(err, errDel)
 	}
 
 	return err
+}
+
+func deleteLayers() error {
+	unshare.MaybeReexecUsingUserNamespace(false)
+
+	store, err := openStore()
+	if err != nil {
+		return err
+	}
+	defer func() { _, _ = store.Shutdown(false) }()
+
+	// finished builds leave their working containers behind; each one keeps
+	// its own layer and every layer below it in use
+	containers, err := store.Containers()
+	if err != nil {
+		return err
+	}
+	for _, c := range containers {
+		if err := store.DeleteContainer(c.ID); err != nil {
+			return err
+		}
+	}
+
+	ids := make([]string, 0)
+	layers, err := store.Layers()
+	for _, layer := range layers {
+		ids = append(ids, layer.ID)
+	}
+
+	// newest layers first
+	for i := len(layers) - 1; i >= 0; i-- {
+		fmt.Printf("[%d/%d] deleting layer %s ...\n", len(layers)-i, len(layers), layers[i].ID)
+		errDel := store.DeleteLayer(layers[i].ID)
+		err = errors.Join(err, errDel)
+	}
+
+	return err
+}
+
+func deleteUnnamedImages() error {
+	imgs, err := listImages(true)
+	if err != nil {
+		return err
+	}
+
+	ids := make([]string, 0)
+	for _, img := range imgs {
+		if len(img.Names) == 0 || img.Names[0] == "" {
+			ids = append(ids, img.ID)
+		}
+	}
+
+	return errors.Join(deleteImage(ids...), deleteLayers())
 }
 
 func wipe() error {
@@ -276,6 +329,14 @@ func main() {
 			wipe()
 		},
 	}
+	wipeUnnamedImageCmd := &cobra.Command{
+		Use:   "wipe-unnamed",
+		Short: "wipe all unnamed images, layers",
+		Args:  cobra.NoArgs,
+		Run: func(cmd *cobra.Command, args []string) {
+			deleteUnnamedImages()
+		},
+	}
 	deleteImageCmd := &cobra.Command{
 		Use:     "delete",
 		Short:   "delete image",
@@ -301,7 +362,7 @@ func main() {
 		},
 	}
 
-	imageCmd.AddCommand(wipeImageCmd, listImageCmd, deleteImageCmd, export2LktCacheCmd, pushImageCmd, pullImageCmd)
+	imageCmd.AddCommand(wipeImageCmd, wipeUnnamedImageCmd, listImageCmd, deleteImageCmd, export2LktCacheCmd, pushImageCmd, pullImageCmd)
 
 	rootCmd.AddCommand(proxyCmd, buildCmd, dumpBuildInfoCmd, imageCmd)
 
