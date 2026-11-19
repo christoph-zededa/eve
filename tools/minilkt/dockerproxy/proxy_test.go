@@ -328,3 +328,31 @@ func TestStartOnBusyPortFails(t *testing.T) {
 		t.Fatal("expected an error for a busy port")
 	}
 }
+
+// Offline, only the Docker Hub token request gets a made-up answer; any other
+// excluded host stays blocked, and nothing goes upstream.
+func TestOfflineAnswersOnlyDockerHubTokenRequests(t *testing.T) {
+	upstream := newCountingServer(t, true)
+	p, port := startConfigured(t, upstream, func(p *Proxy) {
+		p.BlockExtern = true
+		p.excluded["127.0.0.1"] = struct{}{}
+	})
+	client := proxyClient(t, p, port)
+
+	for _, c := range []struct {
+		url        string
+		wantStatus int
+		wantBody   string
+	}{
+		{"https://auth.docker.io/token?scope=repository%3Alibrary%2Falpine%3Apull&service=registry.docker.io", 200, `{"token":"offline","access_token":"offline"}`},
+		{"https://auth.docker.io/other", 403, "Proxy is in blocking mode"},
+		{upstream.URL + "/token", 403, "Proxy is in blocking mode"},
+	} {
+		if status, body, _ := get(t, client, c.url); status != c.wantStatus || body != c.wantBody {
+			t.Errorf("%s: status %d, body %q, want %d and %q", c.url, status, body, c.wantStatus, c.wantBody)
+		}
+	}
+	if got := upstream.hits.Load(); got != 0 {
+		t.Fatalf("upstream hits = %d, want 0 in offline mode", got)
+	}
+}

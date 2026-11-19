@@ -225,6 +225,10 @@ type reqState struct {
 }
 
 func (p *Proxy) onRequest(req *http.Request, ctx *goproxy.ProxyCtx) (*http.Request, *http.Response) {
+	if p.BlockExtern && isDockerHubTokenRequest(req) {
+		// nothing reaches a registry in this mode, so any token will do
+		return req, goproxy.NewResponse(req, "application/json", http.StatusOK, `{"token":"offline","access_token":"offline"}`)
+	}
 	if p.isExcluded(req) && !p.BlockExtern {
 		return req, nil
 	}
@@ -345,6 +349,12 @@ func (p *Proxy) onResponse(resp *http.Response, ctx *goproxy.ProxyCtx) *http.Res
 func (p *Proxy) failed(req *http.Request, what string, err error) *http.Response {
 	log.Printf("dockerproxy: cache %s for %s %s: %v", what, req.Method, req.URL, err)
 	return goproxy.NewResponse(req, "text/plain", http.StatusBadGateway, "dockerproxy: cache "+what+" failed: "+err.Error())
+}
+
+// isDockerHubTokenRequest reports whether req asks the Docker Hub token
+// service for a bearer token.
+func isDockerHubTokenRequest(req *http.Request) bool {
+	return req.URL.Hostname() == "auth.docker.io" && req.URL.Path == "/token"
 }
 
 func (p *Proxy) isExcluded(req *http.Request) bool {
