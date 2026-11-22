@@ -254,30 +254,52 @@ func login() error {
 	return auth.Login(context.TODO(), sysCtx, opts, []string{"docker.io"})
 }
 
-func buildMulti(rootFSYamlPath string, ds []string, targetArch string, forceRebuild, dryBuild, keepGoing, offlineBuild bool) {
-	unshare.MaybeReexecUsingUserNamespace(false)
-
+func buildMultiRootfsYaml(rootFSYamlPath string, ds []string, targetArch string, forceRebuild, dryBuild, keepGoing, offlineBuild bool) {
 	ry := parseRootFSYaml(rootFSYamlPath)
 	ryImgsMap := make(map[string]struct{})
 	for _, img := range ry.images() {
 		archImg := fmt.Sprintf("%s/%s", targetArch, img)
 		ryImgsMap[archImg] = struct{}{}
 	}
-	// err := login()
-	// if err != nil {
-	// 	panic(err)
-	// }
+
+	buildPkgs(ryImgsMap, ds, targetArch, forceRebuild, dryBuild, keepGoing, offlineBuild)
+}
+
+func buildMulti(pkgs []string, ds []string, targetArch string, forceRebuild, dryBuild, keepGoing, offlineBuild bool) {
+	buildPkgsMap := make(map[string]struct{})
+	for _, bp := range pkgs {
+		by, err := parseBuildYAMLDir(bp)
+		if err != nil {
+			panic(err)
+		}
+		archImg := fmt.Sprintf("%s/%s/%s", targetArch, by.Org, by.Image)
+		buildPkgsMap[archImg] = struct{}{}
+	}
+
+	buildPkgs(buildPkgsMap, ds, targetArch, forceRebuild, dryBuild, keepGoing, offlineBuild)
+}
+
+func buildPkgs(buildPkgs map[string]struct{}, ds []string, targetArch string, forceRebuild, dryBuild, keepGoing, offlineBuild bool) {
+	unshare.MaybeReexecUsingUserNamespace(false)
+
 	pkgs := newPkgs(ds, targetArch)
 	relevantPkgs := make(map[string]pkg)
+	var addDeps func(p pkg)
+	addDeps = func(p pkg) {
+		for depImg := range p.pkgDependencies {
+			if _, added := relevantPkgs[depImg]; !added {
+				relevantPkgs[depImg] = pkgs[depImg]
+				addDeps(pkgs[depImg])
+			}
+		}
+	}
 	for _, pkg := range pkgs {
-		_, found := ryImgsMap[pkg.imageName]
+		_, found := buildPkgs[pkg.imageName]
 		if !found {
 			continue
 		}
 		relevantPkgs[pkg.imageName] = pkg
-		for depImg := range pkg.pkgDependencies {
-			relevantPkgs[depImg] = pkgs[depImg]
-		}
+		addDeps(pkg)
 	}
 
 	deps := map[string][]string{}
@@ -288,6 +310,11 @@ func buildMulti(rootFSYamlPath string, ds []string, targetArch string, forceRebu
 	if err != nil {
 		panic(err)
 	}
+	if len(order) == 0 {
+		fmt.Fprintf(os.Stderr, "nothing to build: %+v selects none of the given packages\n", buildPkgs)
+		os.Exit(1)
+	}
+	fmt.Printf("pkgs to build: %+v\n", order)
 
 	p, err := dockerproxy.New(filepath.Join(dataDir, "proxy"))
 	if err != nil {

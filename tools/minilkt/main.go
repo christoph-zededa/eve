@@ -255,7 +255,7 @@ func main() {
 		Use:  "build <rootfs.yml> <pkg dir1> <pkd dir2> ...",
 		Args: cobra.MinimumNArgs(2),
 		Run: func(cmd *cobra.Command, args []string) {
-			buildMulti(args[0], args[1:], targetArch, forceBuild, dryBuild, keepBuild, proxyOfflineMode)
+			buildMultiRootfsYaml(args[0], args[1:], targetArch, forceBuild, dryBuild, keepBuild, proxyOfflineMode)
 		},
 	}
 	dumpBuildInfoCmd := &cobra.Command{
@@ -268,12 +268,21 @@ func main() {
 			}
 		},
 	}
+	buildPkgCmd := &cobra.Command{
+		Use:  "build-pkg <pkg name> <pkg dir1> <pkd dir2> ...",
+		Args: cobra.MinimumNArgs(2),
+		Run: func(cmd *cobra.Command, args []string) {
+			buildMulti([]string{args[0]}, args[1:], targetArch, forceBuild, dryBuild, keepBuild, proxyOfflineMode)
+		},
+	}
 
-	buildCmd.PersistentFlags().BoolVarP(&forceBuild, "force", "f", false, "set force build")
-	buildCmd.PersistentFlags().BoolVarP(&proxyOfflineMode, "offline", "o", false, "block access to non-cached resources")
-	buildCmd.PersistentFlags().BoolVarP(&dryBuild, "dry", "d", false, "set dry build")
-	buildCmd.PersistentFlags().BoolVarP(&keepBuild, "keep-going", "k", false, "keep going building")
-	buildCmd.PersistentFlags().StringVarP(&targetArch, "target-arch", "t", runtime.GOARCH, "target architecture (amd64/arm64)")
+	for _, cmd := range []*cobra.Command{buildCmd, buildPkgCmd} {
+		cmd.PersistentFlags().BoolVarP(&forceBuild, "force", "f", false, "set force build")
+		cmd.PersistentFlags().BoolVarP(&proxyOfflineMode, "offline", "o", false, "block access to non-cached resources")
+		cmd.PersistentFlags().BoolVarP(&dryBuild, "dry", "d", false, "set dry build")
+		cmd.PersistentFlags().BoolVarP(&keepBuild, "keep-going", "k", false, "keep going building")
+		cmd.PersistentFlags().StringVarP(&targetArch, "target-arch", "t", runtime.GOARCH, "target architecture (amd64/arm64)")
+	}
 	dumpBuildInfoCmd.PersistentFlags().StringVarP(&targetArch, "target-arch", "t", runtime.GOARCH, "target architecture (amd64/arm64)")
 
 	var quiet bool
@@ -364,7 +373,7 @@ func main() {
 
 	imageCmd.AddCommand(wipeImageCmd, wipeUnnamedImageCmd, listImageCmd, deleteImageCmd, export2LktCacheCmd, pushImageCmd, pullImageCmd)
 
-	rootCmd.AddCommand(proxyCmd, buildCmd, dumpBuildInfoCmd, imageCmd)
+	rootCmd.AddCommand(proxyCmd, buildCmd, buildPkgCmd, dumpBuildInfoCmd, imageCmd)
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
