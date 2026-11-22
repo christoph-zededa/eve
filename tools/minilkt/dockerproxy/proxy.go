@@ -107,6 +107,10 @@ func (p *Proxy) WipeCache() error {
 	return os.RemoveAll(p.CacheDir)
 }
 
+func (p *Proxy) List() ([]CacheReq, error) {
+	return p.cache.list()
+}
+
 // Start serves the proxy on port of both loopback addresses until Stop is
 // called, so a proxy URL naming localhost works whichever address a client
 // resolves it to.

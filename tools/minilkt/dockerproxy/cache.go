@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/url"
 	"os"
@@ -22,8 +23,49 @@ type cache struct {
 	dir string
 }
 
+type CacheReq struct {
+	Method string
+	URL    string
+	Header http.Header
+	Dir    string
+}
+
+const requestLogFile = "request.json"
+
 // volatileHeaders take no part in the cache key.
 var volatileHeaders = []string{"Traceparent", "If-None-Match", "Authorization", "User-Agent"}
+
+func (c *cache) list() ([]CacheReq, error) {
+	crs := make([]CacheReq, 0)
+
+	err := filepath.WalkDir(c.dir, func(path string, d fs.DirEntry, err error) error {
+		if d.IsDir() {
+			return nil
+		}
+		if d.Name() != requestLogFile {
+			return nil
+		}
+
+		bs, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+
+		cr := CacheReq{}
+		err = json.Unmarshal(bs, &cr)
+		if err != nil {
+			return err
+		}
+
+		cr.Dir = filepath.Dir(path)
+
+		crs = append(crs, cr)
+
+		return nil
+	})
+
+	return crs, err
+}
 
 // path returns the entry directory for req. It is byte-identical to the
 // original tool, unpadded hex directory names included.
@@ -97,6 +139,24 @@ func writeEntry(dir string, resp *http.Response) error {
 	}
 	if err := body.Close(); err != nil {
 		return err
+	}
+	if resp.Request != nil {
+		header := resp.Request.Header.Clone()
+		if header.Get("Authorization") != "" {
+			header.Set("Authorization", "XXX-redacted")
+		}
+		cr := CacheReq{
+			Method: resp.Request.Method,
+			URL:    resp.Request.URL.String(),
+			Header: header,
+		}
+		reqJson, err := json.Marshal(cr)
+		if err != nil {
+			return fmt.Errorf("could not marshal request: %w", err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, requestLogFile), reqJson, 0o600); err != nil {
+			return fmt.Errorf("could write request.json file: %w", err)
+		}
 	}
 	headers, err := json.Marshal(resp.Header)
 	if err != nil {

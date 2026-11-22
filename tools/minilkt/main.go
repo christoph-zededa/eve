@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"minilkt/dockerproxy"
@@ -119,7 +120,7 @@ func main() {
 		Aliases: []string{"i", "img"},
 	}
 
-	proxyStartCmdCacheDir := filepath.Join(dataDir, "proxy")
+	proxyCacheDirFlag := filepath.Join(dataDir, "proxy")
 	proxyStartNetns := false
 	proxyOfflineMode := false
 	proxyStartCmd := &cobra.Command{
@@ -127,13 +128,13 @@ func main() {
 		Args: cobra.MaximumNArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
 			if len(args) == 1 {
-				proxyStartCmdCacheDir = os.Args[0]
+				proxyCacheDirFlag = os.Args[0]
 			}
 			if proxyStartNetns && os.Geteuid() != 0 {
 				fmt.Fprintf(os.Stderr, "--netns must run inside the user namespace of the containers that will join it, e.g.:\n  podman unshare -- %s\n", strings.Join(os.Args, " "))
 				os.Exit(1)
 			}
-			p, err := dockerproxy.New(proxyStartCmdCacheDir)
+			p, err := dockerproxy.New(proxyCacheDirFlag)
 			if err != nil {
 				panic(err)
 			}
@@ -192,7 +193,6 @@ func main() {
 			input.Scan()
 		},
 	}
-	proxyStartCmd.PersistentFlags().StringVarP(&proxyStartCmdCacheDir, "cache", "c", proxyStartCmdCacheDir, "set cache dir")
 	proxyStartCmd.PersistentFlags().BoolVarP(&proxyOfflineMode, "offline", "o", proxyOfflineMode, "block access to non-cached resources")
 	proxyStartCmd.PersistentFlags().BoolVar(&proxyStartNetns, "netns", false, "also listen in a private loopback-only network namespace for containers to join (run under podman unshare for podman)")
 
@@ -245,7 +245,43 @@ func main() {
 		},
 	}
 
-	proxyCmd.AddCommand(proxyStartCmd, proxyWipeCmd, proxyExportCacheCmd, proxyImportCacheCmd)
+	lsJson := false
+	proxyLsCmd := &cobra.Command{
+		Use:     "list",
+		Aliases: []string{"ls"},
+		Args:    cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			p, err := dockerproxy.New(proxyCacheDirFlag)
+			if err != nil {
+				return err
+			}
+			reqs, err := p.List()
+			if err != nil {
+				return err
+			}
+
+			if lsJson {
+				js, err := json.Marshal(reqs)
+				if err != nil {
+					return err
+				}
+
+				fmt.Println(string(js))
+			} else {
+				for _, req := range reqs {
+					fmt.Printf("%s %s (%s)\n", req.Method, req.URL, req.Dir)
+				}
+			}
+
+			return nil
+		},
+	}
+
+	proxyStartCmd.PersistentFlags().StringVarP(&proxyCacheDirFlag, "cache", "c", proxyCacheDirFlag, "set cache dir")
+	proxyLsCmd.PersistentFlags().StringVarP(&proxyCacheDirFlag, "cache", "c", proxyCacheDirFlag, "set cache dir")
+	proxyLsCmd.PersistentFlags().BoolVarP(&lsJson, "json", "j", false, "json output")
+
+	proxyCmd.AddCommand(proxyStartCmd, proxyWipeCmd, proxyExportCacheCmd, proxyImportCacheCmd, proxyLsCmd)
 
 	forceBuild := false
 	dryBuild := false
