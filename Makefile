@@ -893,7 +893,7 @@ config: $(CONFIG_IMG)		; $(QUIET): "$@: Succeeded, CONFIG_IMG=$(CONFIG_IMG)"
 ssh-key: $(SSH_KEY)
 rootfs: $(ROOTFS_IMGS) current
 sbom: $(SBOM)
-live: $(LIVE_IMG) $(BIOS_IMG) current	; $(QUIET): "$@: Succeeded, LIVE_IMG=$(LIVE_IMG)"
+live: cache-export-docker-load-all $(LIVE_IMG) $(BIOS_IMG) current	; $(QUIET): "$@: Succeeded, LIVE_IMG=$(LIVE_IMG)"
 live-%: $(LIVE).%		current ;  $(QUIET): "$@: Succeeded, LIVE=$(LIVE)"
 installer: $(INSTALLER).raw current
 installer.tar: $(INSTALLER_TAR)
@@ -1074,8 +1074,7 @@ $(LIVE).parallels: $(LIVE).raw
 	qemu-img convert -O parallels $< $@/live.0.$(PARALLELS_UUID).hds
 	qemu-img info -f parallels --output json $(LIVE).parallels/live.0.$(PARALLELS_UUID).hds | jq --raw-output '.["virtual-size"]' | xargs ./tools/parallels_disk.sh $(LIVE) $(PARALLELS_UUID)
 
-PKG_BUILD_YAMLS=$(foreach pkg,${PKGS} ${PKGS_HOSTARCH}, pkg/$(pkg:pkg/%=%)/$(strip $(call get_pkg_build_yml,$(pkg:pkg/%=%))))
-PKG_HOSTARCH_BUILD_YAMLS=$(foreach pkg, ${PKGS_HOSTARCH}, pkg/${pkg}/$(strip $(call get_pkg_build_yml,$(pkg:pkg/%=%))))
+PKG_BUILD_YAMLS=$(foreach pkg,${PKGS} ${PKGS_HOSTARCH} ${PKGS_DOCKER_LOAD}, pkg/$(pkg:pkg/%=%)/$(strip $(call get_pkg_build_yml,$(pkg:pkg/%=%))))
 # top-level linuxkit packages targets, note the one enforcing ordering between packages
 pkgs: RESCAN_DEPS=
 pkgs: $(LINUXKIT) $(PKGS) $(LK_POSSIBLE_BUILD_ARG_TARGETS)
@@ -1083,7 +1082,12 @@ pkgs: $(LINUXKIT) $(PKGS) $(LK_POSSIBLE_BUILD_ARG_TARGETS)
 
 newpkgs: images/rootfs.yml
 	go build -C tools/minilkt
-	./tools/minilkt/minilkt build --target-arch $(ZARCH) images/rootfs.yml $(PKG_HOSTARCH_BUILD_YAMLS)    $(PKG_BUILD_YAMLS)
+	./tools/minilkt/minilkt build --target-arch $(ZARCH) images/rootfs.yml $(PKG_BUILD_YAMLS)
+	./tools/minilkt/minilkt build-pkg --target-arch $(ZARCH) pkg/u-boot/build.yml $(PKG_BUILD_YAMLS)
+	./tools/minilkt/minilkt build-pkg --target-arch $(ZARCH) pkg/uefi/build.yml $(PKG_BUILD_YAMLS)
+	for p in $(PKGS_DOCKER_LOAD); do \
+		 ./tools/minilkt/minilkt build-pkg pkg/$$p/build.yml $(PKG_BUILD_YAMLS) || exit 1; \
+	done
 	./tools/minilkt/minilkt i e2l
 	@echo Done building packages $(PKGS)
 
