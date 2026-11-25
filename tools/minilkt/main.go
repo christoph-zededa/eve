@@ -288,7 +288,7 @@ func main() {
 	keepBuild := false
 	targetArch := runtime.GOARCH
 	buildCmd := &cobra.Command{
-		Use:  "build <rootfs.yml> <pkg dir1> <pkd dir2> ...",
+		Use:  "build <rootfs.yml> <pkg dir1/build.yml> <pkd dir2/build-k.yml> ...",
 		Args: cobra.MinimumNArgs(2),
 		Run: func(cmd *cobra.Command, args []string) {
 			buildMultiRootfsYaml(args[0], args[1:], targetArch, forceBuild, dryBuild, keepBuild, proxyOfflineMode)

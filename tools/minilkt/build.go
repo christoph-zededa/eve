@@ -127,14 +127,14 @@ type pkg struct {
 // architecture, the packages that stages start from with
 // --platform=$BUILDPLATFORM and the packages those are built from. A build's
 // imageName, the key, is "<arch>/<image>"; pkgDependencies name builds by it.
-func newPkgs(ds []string, targetArch string) map[string]pkg {
+func newPkgs(bys []string, targetArch string) map[string]pkg {
 	pkgs := map[string]*pkg{}
 	var pkgsMutex sync.Mutex
 
 	var wg sync.WaitGroup
 
-	for _, d := range ds {
-		d := d
+	for _, by := range bys {
+		d := filepath.Dir(by)
 		wg.Go(func() {
 			var err error
 			p := pkg{path: d}
@@ -143,7 +143,7 @@ func newPkgs(ds []string, targetArch string) map[string]pkg {
 			if err != nil {
 				panic(err)
 			}
-			p.by, err = parseBuildYAMLDir(d)
+			p.by, err = parseBuildYAML(by)
 			if err != nil {
 				panic(err)
 			}
@@ -254,7 +254,7 @@ func login() error {
 	return auth.Login(context.TODO(), sysCtx, opts, []string{"docker.io"})
 }
 
-func buildMultiRootfsYaml(rootFSYamlPath string, ds []string, targetArch string, forceRebuild, dryBuild, keepGoing, offlineBuild bool) {
+func buildMultiRootfsYaml(rootFSYamlPath string, bys []string, targetArch string, forceRebuild, dryBuild, keepGoing, offlineBuild bool) {
 	ry := parseRootFSYaml(rootFSYamlPath)
 	ryImgsMap := make(map[string]struct{})
 	for _, img := range ry.images() {
@@ -262,13 +262,13 @@ func buildMultiRootfsYaml(rootFSYamlPath string, ds []string, targetArch string,
 		ryImgsMap[archImg] = struct{}{}
 	}
 
-	buildPkgs(ryImgsMap, ds, targetArch, forceRebuild, dryBuild, keepGoing, offlineBuild)
+	buildPkgs(ryImgsMap, bys, targetArch, forceRebuild, dryBuild, keepGoing, offlineBuild)
 }
 
-func buildMulti(pkgs []string, ds []string, targetArch string, forceRebuild, dryBuild, keepGoing, offlineBuild bool) {
+func buildMulti(pkgs []string, bys []string, targetArch string, forceRebuild, dryBuild, keepGoing, offlineBuild bool) {
 	buildPkgsMap := make(map[string]struct{})
 	for _, bp := range pkgs {
-		by, err := parseBuildYAMLDir(bp)
+		by, err := parseBuildYAML(bp)
 		if err != nil {
 			panic(err)
 		}
@@ -276,13 +276,13 @@ func buildMulti(pkgs []string, ds []string, targetArch string, forceRebuild, dry
 		buildPkgsMap[archImg] = struct{}{}
 	}
 
-	buildPkgs(buildPkgsMap, ds, targetArch, forceRebuild, dryBuild, keepGoing, offlineBuild)
+	buildPkgs(buildPkgsMap, bys, targetArch, forceRebuild, dryBuild, keepGoing, offlineBuild)
 }
 
-func buildPkgs(buildPkgs map[string]struct{}, ds []string, targetArch string, forceRebuild, dryBuild, keepGoing, offlineBuild bool) {
+func buildPkgs(buildPkgs map[string]struct{}, bys []string, targetArch string, forceRebuild, dryBuild, keepGoing, offlineBuild bool) {
 	unshare.MaybeReexecUsingUserNamespace(false)
 
-	pkgs := newPkgs(ds, targetArch)
+	pkgs := newPkgs(bys, targetArch)
 	relevantPkgs := make(map[string]pkg)
 	var addDeps func(p pkg)
 	addDeps = func(p pkg) {

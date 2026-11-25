@@ -92,8 +92,8 @@ func newBuildYAML() *BuildYAML {
 	}
 }
 
-func parseBuildYAMLDir(p string) (*BuildYAML, error) {
-	bs, err := os.ReadFile(filepath.Join(p, "build.yml"))
+func parseBuildYAML(p string) (*BuildYAML, error) {
+	bs, err := os.ReadFile(p)
 	if err != nil {
 		return nil, err
 	}
