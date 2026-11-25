@@ -11,12 +11,15 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"reflect"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/luthermonson/go-proxmox"
+	"github.com/sirupsen/logrus"
 
 	api "github.com/lf-edge/eve/evetest/grpcapi/go"
 )
@@ -199,6 +202,14 @@ func (f *fakeVMAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// failingCallCtx bounds a call that keeps failing, which would otherwise be
+// retried for its whole retry window.
+func failingCallCtx(t *testing.T) context.Context {
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	t.Cleanup(cancel)
+	return ctx
+}
+
 func newFakeVMProvider(t *testing.T, api *fakeVMAPI) (*ProxmoxProvider, *proxmoxDevice) {
 	t.Helper()
 	saved := proxmoxRetryDelay
@@ -217,7 +228,7 @@ func TestSetVMPowerStateSkipsVMInTargetState(t *testing.T) {
 	p, dev := newFakeVMProvider(t, &fakeVMAPI{status: "running"})
 	calls := 0
 	err := p.setVMPowerState(context.Background(), dev, "start", vmRunning,
-		func(*proxmox.VirtualMachine) error { calls++; return nil })
+		func(context.Context, *proxmox.VirtualMachine) error { calls++; return nil })
 	if err != nil || calls != 0 {
 		t.Fatalf("expected success without calling op, got err=%v calls=%d", err, calls)
 	}
@@ -227,7 +238,7 @@ func TestSetVMPowerStateRetriesFailure(t *testing.T) {
 	p, dev := newFakeVMProvider(t, &fakeVMAPI{status: "stopped"})
 	calls := 0
 	err := p.setVMPowerState(context.Background(), dev, "start", vmRunning,
-		func(*proxmox.VirtualMachine) error {
+		func(context.Context, *proxmox.VirtualMachine) error {
 			calls++
 			if calls == 1 {
 				return fmt.Errorf("%w: start failed: QEMU exited with code 1", errTaskFailed)
@@ -246,7 +257,7 @@ func TestSetVMPowerStateAcceptsTargetReachedDespiteError(t *testing.T) {
 	p, dev := newFakeVMProvider(t, api)
 	calls := 0
 	err := p.setVMPowerState(context.Background(), dev, "stop", vmStopped,
-		func(*proxmox.VirtualMachine) error {
+		func(context.Context, *proxmox.VirtualMachine) error {
 			calls++
 			api.setStatus("stopped")
 			return errors.New("unexpected end of JSON input")
@@ -260,7 +271,7 @@ func TestSetVMPowerStateDoesNotRetryPermanentFailure(t *testing.T) {
 	p, dev := newFakeVMProvider(t, &fakeVMAPI{status: "running"})
 	calls := 0
 	err := p.setVMPowerState(context.Background(), dev, "shut down", vmStopped,
-		func(*proxmox.VirtualMachine) error {
+		func(context.Context, *proxmox.VirtualMachine) error {
 			calls++
 			return permanent(fmt.Errorf("%w: VM quit/powerdown failed - got timeout", errTaskFailed))
 		})
@@ -273,7 +284,7 @@ func TestSetVMPowerStateMissingVM(t *testing.T) {
 	p, dev := newFakeVMProvider(t, &fakeVMAPI{missing: true})
 	calls := 0
 	err := p.setVMPowerState(context.Background(), dev, "start", vmRunning,
-		func(*proxmox.VirtualMachine) error { calls++; return nil })
+		func(context.Context, *proxmox.VirtualMachine) error { calls++; return nil })
 	if !isVMNotFoundErr(err) || calls != 0 {
 		t.Fatalf("expected a not-found error without calling op, got err=%v calls=%d", err, calls)
 	}
@@ -315,5 +326,705 @@ func TestBuildVMOptionsThreadsPerCore(t *testing.T) {
 				t.Errorf("args lack %q: %s", tc.want, args)
 			}
 		})
+	}
+}
+
+// A delete that PVE completes after the teardown gave up leaves only the
+// device entry behind, which the next setup of the same name must clear.
+func TestRemoveLeftoverDeviceWithVMGone(t *testing.T) {
+	p, dev := newFakeVMProvider(t, &fakeVMAPI{missing: true})
+	p.devices = map[string]*proxmoxDevice{dev.name: dev}
+	if err := p.removeLeftoverDevice(
+		context.Background(), logrus.NewEntry(logrus.New()), dev); err != nil {
+		t.Fatalf("removeLeftoverDevice: %v", err)
+	}
+	if _, ok := p.devices[dev.name]; ok {
+		t.Error("leftover device entry was not removed")
+	}
+}
+
+func TestRemoveLeftoverDeviceKeepsEntryOnFailure(t *testing.T) {
+	// The fake API does not serve the VM delete, so the teardown fails.
+	p, dev := newFakeVMProvider(t, &fakeVMAPI{status: "stopped"})
+	p.devices = map[string]*proxmoxDevice{dev.name: dev}
+	if err := p.removeLeftoverDevice(
+		failingCallCtx(t), logrus.NewEntry(logrus.New()), dev); err == nil {
+		t.Fatal("expected an error when the VM cannot be deleted")
+	}
+	if _, ok := p.devices[dev.name]; !ok {
+		t.Error("device entry was dropped although its VM was not removed")
+	}
+}
+
+// A failed teardown marks the device as a leftover for the next setup to
+// remove, while a setup of a device that was never torn down still fails
+// without touching its VM.
+func TestSetupDeviceRemovesOnlyLeftovers(t *testing.T) {
+	p, dev := newFakeVMProvider(t, &fakeVMAPI{status: "stopped"})
+	p.devices = map[string]*proxmoxDevice{dev.name: dev}
+	p.pending = map[string]*proxmoxDevice{}
+	ctx := context.Background()
+
+	err := p.SetupDevice(ctx, dev.name, DeviceSpec{})
+	if err == nil || !strings.Contains(err.Error(), "already exists") {
+		t.Fatalf("setup of a live device: got %v, want an already-exists error", err)
+	}
+	if p.devices[dev.name] != dev {
+		t.Error("setup of a live device replaced its entry")
+	}
+	if _, ok := p.pending[dev.name]; ok {
+		t.Error("rejected setup left its name reserved")
+	}
+
+	if err := p.TeardownDevice(failingCallCtx(t), dev.name); err == nil {
+		t.Fatal("expected the teardown to fail when the VM cannot be deleted")
+	}
+	if !p.devices[dev.name].teardownFailed {
+		t.Error("failed teardown did not mark the device as a leftover")
+	}
+}
+
+// The sweep finishes only the teardowns that failed, and leaves alone a device
+// whose name a setup has reserved.
+func TestRetryFailedTeardowns(t *testing.T) {
+	p, leftover := newFakeVMProvider(t, &fakeVMAPI{missing: true})
+	leftover.teardownFailed = true
+	live := &proxmoxDevice{name: "live-dev", vmID: 111}
+	reserved := &proxmoxDevice{name: "reserved-dev", vmID: 112, teardownFailed: true}
+	p.devices = map[string]*proxmoxDevice{
+		leftover.name: leftover, live.name: live, reserved.name: reserved}
+	p.pending = map[string]*proxmoxDevice{reserved.name: nil}
+
+	if err := p.retryFailedTeardowns(
+		context.Background(), logrus.NewEntry(logrus.New())); err != nil {
+		t.Fatalf("retryFailedTeardowns: %v", err)
+	}
+	if _, ok := p.devices[leftover.name]; ok {
+		t.Error("device of a failed teardown was not removed")
+	}
+	if p.devices[live.name] != live || p.devices[reserved.name] != reserved {
+		t.Errorf("removed a device it should have left alone: %v", p.devices)
+	}
+	if dev, ok := p.pending[reserved.name]; !ok || dev != nil || len(p.pending) != 1 {
+		t.Errorf("pending reservations changed: %v", p.pending)
+	}
+}
+
+func TestRetryFailedTeardownsKeepsEntryOnFailure(t *testing.T) {
+	// The fake API does not serve the VM delete, so the teardown fails again.
+	p, dev := newFakeVMProvider(t, &fakeVMAPI{status: "stopped"})
+	dev.teardownFailed = true
+	p.devices = map[string]*proxmoxDevice{dev.name: dev}
+	p.pending = map[string]*proxmoxDevice{}
+
+	if err := p.retryFailedTeardowns(
+		failingCallCtx(t), logrus.NewEntry(logrus.New())); err == nil {
+		t.Fatal("expected an error when the VM cannot be deleted")
+	}
+	if p.devices[dev.name] != dev {
+		t.Error("device entry was dropped although its VM was not removed")
+	}
+	if len(p.pending) != 0 {
+		t.Errorf("failed retry left its name reserved: %v", p.pending)
+	}
+}
+
+// A create that PVE fails transiently, e.g. when it cannot fork the create
+// worker, is retried with a fresh VMID once the failed one has been cleaned
+// up.
+func TestCreateVMRetriesWithNewVMID(t *testing.T) {
+	saved := proxmoxRetryDelay
+	proxmoxRetryDelay = time.Millisecond
+	t.Cleanup(func() { proxmoxRetryDelay = saved })
+
+	var mu sync.Mutex
+	nextID, creates := 111, 0
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		switch r.URL.Path {
+		case "/api2/json/cluster/nextid":
+			_, _ = fmt.Fprintf(w, `{"data":"%d"}`, nextID)
+			nextID++
+		case "/api2/json/nodes/pve/qemu":
+			creates++
+			if creates == 1 {
+				http.Error(w, "got no worker upid - start worker failed",
+					http.StatusInternalServerError)
+				return
+			}
+			_, _ = io.WriteString(w,
+				`{"data":"UPID:pve:00000001:00000002:00000003:qmcreate:112:root@pam:"}`)
+		case "/api2/json/nodes/pve/qemu/111/status/current":
+			// The failed create left nothing behind.
+			conn, buf, err := w.(http.Hijacker).Hijack()
+			if err != nil {
+				return
+			}
+			defer func() { _ = conn.Close() }()
+			_, _ = buf.WriteString("HTTP/1.1 500 Configuration file " +
+				"'nodes/pve/qemu-server/111.conf' does not exist\r\n" +
+				"Content-Length: 0\r\nConnection: close\r\n\r\n")
+			_ = buf.Flush()
+		default:
+			http.NotFound(w, r)
+		}
+	}
+	srv := httptest.NewServer(http.HandlerFunc(handler))
+	t.Cleanup(srv.Close)
+	client := proxmox.NewClient(srv.URL+"/api2/json", proxmox.WithHTTPClient(srv.Client()))
+	p := &ProxmoxProvider{
+		conf:   ProxmoxProviderConf{Node: "pve", Storage: "local-lvm"},
+		client: client,
+	}
+	node := (&proxmox.Node{}).New(client, "pve")
+	cluster := (&proxmox.Cluster{}).New(client)
+	dev := &proxmoxDevice{name: "dev", spec: DeviceSpec{
+		CPUs: 2, MemoryBytes: 1 << 30, Arch: api.ArchType_ARCH_AMD64,
+	}}
+	log := logrus.NewEntry(logrus.New())
+
+	_, err := retryProxmoxCall(context.Background(), log, "create", time.Minute,
+		func(ctx context.Context) (*proxmox.Task, error) {
+			return p.createVM(ctx, ctx, log, node, cluster, dev, nil, "")
+		})
+	if err != nil {
+		t.Fatalf("expected the second create to succeed, got: %v", err)
+	}
+	if creates != 2 || dev.vmID != 112 {
+		t.Errorf("got %d creates and VMID %d, want 2 creates and VMID 112",
+			creates, dev.vmID)
+	}
+}
+
+// A call that keeps failing transiently is retried until its window passes,
+// however many attempts that takes, and returns the last failure.
+func TestRetryProxmoxCallRetriesUntilWindowPasses(t *testing.T) {
+	saved := proxmoxRetryDelay
+	proxmoxRetryDelay = time.Millisecond
+	t.Cleanup(func() { proxmoxRetryDelay = saved })
+
+	attempts := 0
+	start := time.Now()
+	_, err := retryProxmoxCall(context.Background(), logrus.NewEntry(logrus.New()),
+		"create", 200*time.Millisecond, func(context.Context) (struct{}, error) {
+			attempts++
+			return struct{}{}, fmt.Errorf("attempt %d: can't lock file - got timeout",
+				attempts)
+		})
+	if elapsed := time.Since(start); elapsed < 200*time.Millisecond {
+		t.Errorf("gave up after %v, before the window passed", elapsed)
+	}
+	if attempts < 10 {
+		t.Errorf("got %d attempts, want retries until the window passed", attempts)
+	}
+	if err == nil || err.Error() != fmt.Sprintf(
+		"attempt %d: can't lock file - got timeout", attempts) {
+		t.Errorf("got %v, want the failure of the last attempt", err)
+	}
+}
+
+// An attempt that hangs is ended by the window, and the call is not retried
+// after it: the window is all the time the operation may take.
+func TestRetryProxmoxCallEndsHungAttemptWithWindow(t *testing.T) {
+	attempts := 0
+	_, err := retryProxmoxCall(context.Background(), logrus.NewEntry(logrus.New()),
+		"delete", 50*time.Millisecond, func(ctx context.Context) (struct{}, error) {
+			attempts++
+			<-ctx.Done()
+			return struct{}{}, ctx.Err()
+		})
+	if !errors.Is(err, context.DeadlineExceeded) || attempts != 1 {
+		t.Errorf("got err=%v after %d attempts, want one attempt ended by the window",
+			err, attempts)
+	}
+}
+
+// The deadline of ctx ends the retries when it comes before the window
+// passes.
+func TestRetryProxmoxCallStopsAtDeadline(t *testing.T) {
+	saved := proxmoxRetryDelay
+	proxmoxRetryDelay = time.Millisecond
+	t.Cleanup(func() { proxmoxRetryDelay = saved })
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	_, err := retryProxmoxCall(ctx, logrus.NewEntry(logrus.New()), "delete", time.Hour,
+		func(context.Context) (struct{}, error) {
+			return struct{}{}, errors.New("transient failure")
+		})
+	if err == nil || time.Since(start) > 10*time.Second {
+		t.Errorf("got err=%v after %v, want a failure at the deadline", err,
+			time.Since(start))
+	}
+}
+
+// A zero window makes a single attempt, e.g. for a status read that is polled
+// anyway.
+func TestRetryProxmoxCallZeroWindowMakesOneAttempt(t *testing.T) {
+	attempts := 0
+	_, err := retryProxmoxCall(context.Background(), logrus.NewEntry(logrus.New()),
+		"get VM", 0, func(context.Context) (struct{}, error) {
+			attempts++
+			return struct{}{}, errors.New("transient failure")
+		})
+	if err == nil || attempts != 1 {
+		t.Errorf("got err=%v after %d attempts, want one failed attempt", err, attempts)
+	}
+}
+
+// A failure that a retry cannot fix is returned at once: one marked
+// permanent, or a request that PVE rejected as invalid, unless for a lock
+// timeout, which PVE reports as an invalid request too.
+func TestRetryProxmoxCallPermanentFailures(t *testing.T) {
+	saved := proxmoxRetryDelay
+	proxmoxRetryDelay = time.Millisecond
+	t.Cleanup(func() { proxmoxRetryDelay = saved })
+
+	for _, tc := range []struct {
+		name      string
+		err       error
+		wantRetry bool
+	}{
+		{"marked permanent", permanent(errors.New("VM does not exist")), false},
+		{"invalid request", errors.New("bad request: 400 Parameter verification " +
+			`failed. - {"virtio0":"invalid format"}`), false},
+		{"lock timeout reported as invalid request", errors.New("bad request: 400 " +
+			`Parameter verification failed. - {"virtio0":"unable to apply pending ` +
+			"change virtio0 : can't lock file '/var/lock/pve-manager/" +
+			`pve-storage-pool' - got timeout\n"}`), true},
+		{"server error", errors.New("500 Internal Server Error"), true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			attempts := 0
+			_, err := retryProxmoxCall(context.Background(),
+				logrus.NewEntry(logrus.New()), "call", time.Minute,
+				func(context.Context) (struct{}, error) {
+					attempts++
+					if attempts == 1 {
+						return struct{}{}, tc.err
+					}
+					return struct{}{}, nil
+				})
+			if tc.wantRetry && (err != nil || attempts != 2) {
+				t.Errorf("got err=%v after %d attempts, want success on a retry",
+					err, attempts)
+			}
+			if !tc.wantRetry && (err == nil || attempts != 1) {
+				t.Errorf("got err=%v after %d attempts, want the failure at once",
+					err, attempts)
+			}
+		})
+	}
+}
+
+// fakeCreateAPI serves VMID allocation, VM creation and the status of the
+// create tasks, whose exit status taskExit gives per VMID; the status of a task
+// missing there cannot be read. A VM that is looked up, which removeVM does
+// first, is recorded in lookups and reported missing.
+type fakeCreateAPI struct {
+	mu       sync.Mutex
+	nextID   int
+	creates  []int
+	lookups  []string
+	taskExit map[int]string
+	// onFailedTask, if set, is called when the failure of the create task of
+	// a VM is reported.
+	onFailedTask func(vmID int)
+}
+
+func (f *fakeCreateAPI) upid(vmID int) string {
+	return fmt.Sprintf("UPID:pve:00000001:00000002:00000003:qmcreate:%d:root@pam:", vmID)
+}
+
+func (f *fakeCreateAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	switch {
+	case r.URL.Path == "/api2/json/cluster/nextid":
+		_, _ = fmt.Fprintf(w, `{"data":"%d"}`, f.nextID)
+		f.nextID++
+	case r.URL.Path == "/api2/json/nodes/pve/qemu":
+		vmID := f.nextID - 1
+		f.creates = append(f.creates, vmID)
+		_, _ = fmt.Fprintf(w, `{"data":%q}`, f.upid(vmID))
+	case strings.HasPrefix(r.URL.Path, "/api2/json/nodes/pve/tasks/"):
+		for vmID, exit := range f.taskExit {
+			if strings.Contains(r.URL.Path, f.upid(vmID)) {
+				if exit != "OK" && f.onFailedTask != nil {
+					f.onFailedTask(vmID)
+				}
+				_, _ = fmt.Fprintf(w,
+					`{"data":{"status":"stopped","exitstatus":%q}}`, exit)
+				return
+			}
+		}
+		http.NotFound(w, r)
+	case strings.HasSuffix(r.URL.Path, "/status/current"):
+		f.lookups = append(f.lookups, strings.TrimSuffix(
+			strings.TrimPrefix(r.URL.Path, "/api2/json/nodes/pve/qemu/"),
+			"/status/current"))
+		conn, buf, err := w.(http.Hijacker).Hijack()
+		if err != nil {
+			return
+		}
+		defer func() { _ = conn.Close() }()
+		_, _ = buf.WriteString("HTTP/1.1 500 Configuration file " +
+			"'nodes/pve/qemu-server/1.conf' does not exist\r\n" +
+			"Content-Length: 0\r\nConnection: close\r\n\r\n")
+		_ = buf.Flush()
+	default:
+		http.NotFound(w, r)
+	}
+}
+
+func createWithRetry(t *testing.T, fake *fakeCreateAPI,
+	prepare ...func(*ProxmoxProvider)) error {
+	t.Helper()
+	savedDelay, savedPoll := proxmoxRetryDelay, proxmoxTaskPollInterval
+	proxmoxRetryDelay, proxmoxTaskPollInterval = time.Millisecond, time.Millisecond
+	t.Cleanup(func() {
+		proxmoxRetryDelay, proxmoxTaskPollInterval = savedDelay, savedPoll
+	})
+	srv := httptest.NewServer(fake)
+	t.Cleanup(srv.Close)
+	client := proxmox.NewClient(srv.URL+"/api2/json", proxmox.WithHTTPClient(srv.Client()))
+	p := &ProxmoxProvider{
+		conf:    ProxmoxProviderConf{Node: "pve", Storage: "local-lvm"},
+		client:  client,
+		devices: map[string]*proxmoxDevice{},
+		pending: map[string]*proxmoxDevice{},
+	}
+	for _, prep := range prepare {
+		prep(p)
+	}
+	node := (&proxmox.Node{}).New(client, "pve")
+	cluster := (&proxmox.Cluster{}).New(client)
+	dev := &proxmoxDevice{name: "dev", spec: DeviceSpec{
+		CPUs: 2, MemoryBytes: 1 << 30, Arch: api.ArchType_ARCH_AMD64,
+	}}
+	log := logrus.NewEntry(logrus.New())
+	ctx := context.Background()
+	_, err := retryProxmoxCall(ctx, log, "create", time.Minute,
+		func(callCtx context.Context) (struct{}, error) {
+			return struct{}{}, p.createAndWaitVM(
+				callCtx, ctx, log, node, cluster, dev, nil, "")
+		})
+	return err
+}
+
+// A create task that PVE completed as failed, e.g. because creates that import
+// disks at the same time timed out on PVE's storage lock, is retried with a
+// new VMID once the failed VM is removed.
+func TestCreateAndWaitVMRetriesFailedTask(t *testing.T) {
+	for _, exit := range []string{
+		"unable to create VM 111 - cannot import from 'local:import/disk.qcow2' - " +
+			"can't lock file '/var/lock/pve-manager/pve-storage-pool' - got timeout",
+		"unable to create VM 111 - unable to allocate disk",
+	} {
+		t.Run(exit, func(t *testing.T) {
+			api := &fakeCreateAPI{nextID: 111,
+				taskExit: map[int]string{111: exit, 112: "OK"}}
+			if err := createWithRetry(t, api); err != nil {
+				t.Fatalf("expected the second create to succeed, got %v", err)
+			}
+			if !reflect.DeepEqual(api.creates, []int{111, 112}) {
+				t.Errorf("got creates of VMs %v, want [111 112]", api.creates)
+			}
+			if !reflect.DeepEqual(api.lookups, []string{"111"}) {
+				t.Errorf("got lookups of VMs %v, want the failed VM 111 removed",
+					api.lookups)
+			}
+		})
+	}
+}
+
+// A wait for the create task that fails on the client side is not retried, as
+// PVE may still be creating the VM; the VM is still removed.
+func TestCreateAndWaitVMDoesNotRetryFailedWait(t *testing.T) {
+	api := &fakeCreateAPI{nextID: 111, taskExit: map[int]string{}}
+	err := createWithRetry(t, api)
+	if err == nil || errors.Is(err, errTaskFailed) {
+		t.Fatalf("expected the wait for the task to fail, got %v", err)
+	}
+	if !reflect.DeepEqual(api.creates, []int{111}) {
+		t.Errorf("got creates of VMs %v, want [111]", api.creates)
+	}
+	if !reflect.DeepEqual(api.lookups, []string{"111"}) {
+		t.Errorf("got lookups of VMs %v, want VM 111 removed", api.lookups)
+	}
+}
+
+// When PVE removes the VM of a failed create task itself, its VMID can be
+// allocated to another device before the cleanup runs, which must then leave
+// that device's VM alone.
+func TestCreateAndWaitVMSkipsRecycledVMID(t *testing.T) {
+	api := &fakeCreateAPI{nextID: 111, taskExit: map[int]string{
+		111: "can't lock file '/var/lock/pve-manager/pve-storage-local' - got timeout",
+		112: "OK",
+	}}
+	err := createWithRetry(t, api, func(p *ProxmoxProvider) {
+		api.onFailedTask = func(vmID int) {
+			p.devMutex.Lock()
+			p.pending["other"] = &proxmoxDevice{name: "other", vmID: vmID}
+			p.devMutex.Unlock()
+		}
+	})
+	if err != nil {
+		t.Fatalf("expected the retry to succeed, got: %v", err)
+	}
+	if len(api.lookups) != 0 {
+		t.Errorf("cleanup looked up VMs %v, although another device holds VMID 111",
+			api.lookups)
+	}
+}
+
+// A VM is removed only on behalf of the device that holds its VMID: the
+// sweep (nil owner) and a device whose VMID was allocated again leave it
+// alone.
+func TestRemoveVMSparesVMIDOfAnotherDevice(t *testing.T) {
+	api := &fakeCreateAPI{}
+	srv := httptest.NewServer(api)
+	t.Cleanup(srv.Close)
+	client := proxmox.NewClient(srv.URL+"/api2/json", proxmox.WithHTTPClient(srv.Client()))
+	holder := &proxmoxDevice{name: "holder", vmID: 120}
+	p := &ProxmoxProvider{
+		conf:    ProxmoxProviderConf{Node: "pve"},
+		client:  client,
+		devices: map[string]*proxmoxDevice{holder.name: holder},
+	}
+	node := (&proxmox.Node{}).New(client, "pve")
+	log := logrus.NewEntry(logrus.New())
+	ctx := context.Background()
+
+	for _, owner := range []*proxmoxDevice{nil, {name: "previous", vmID: 120}} {
+		removed, err := p.removeVM(ctx, log, node, owner, 120)
+		if removed || err != nil {
+			t.Errorf("removeVM for owner %v: got removed=%t err=%v, want neither",
+				owner, removed, err)
+		}
+	}
+	if len(api.lookups) != 0 {
+		t.Fatalf("looked up VMs %v of another device", api.lookups)
+	}
+	if _, err := p.removeVM(ctx, log, node, holder, 120); err != nil {
+		t.Fatalf("removeVM for the holder: %v", err)
+	}
+	if !reflect.DeepEqual(api.lookups, []string{"120"}) {
+		t.Errorf("holder's removal looked up %v, want [120]", api.lookups)
+	}
+}
+
+// fakeSweepAPI serves the listing and removal of the VMs in vms (VMID ->
+// name; an empty name is a placeholder holding "lock: create"), recording the
+// VMIDs it is asked to delete.
+type fakeSweepAPI struct {
+	mu      sync.Mutex
+	vms     map[int]string
+	deleted []int
+}
+
+func (f *fakeSweepAPI) vmJSON(vmID int) string {
+	if name := f.vms[vmID]; name != "" {
+		return fmt.Sprintf(`{"vmid":%d,"name":%q,"status":"stopped"}`, vmID, name)
+	}
+	return fmt.Sprintf(`{"vmid":%d,"status":"stopped","lock":"create"}`, vmID)
+}
+
+func (f *fakeSweepAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	path := strings.TrimPrefix(r.URL.Path, "/api2/json/nodes/pve/")
+	var vmID int
+	switch {
+	case path == "qemu":
+		var list []string
+		for id := range f.vms {
+			list = append(list, f.vmJSON(id))
+		}
+		_, _ = fmt.Fprintf(w, `{"data":[%s]}`, strings.Join(list, ","))
+	case path == "tasks":
+		_, _ = io.WriteString(w, `{"data":[]}`)
+	case strings.HasPrefix(path, "tasks/"):
+		_, _ = io.WriteString(w, `{"data":{"status":"stopped","exitstatus":"OK"}}`)
+	case r.Method == http.MethodDelete:
+		_, _ = fmt.Sscanf(path, "qemu/%d", &vmID)
+		f.deleted = append(f.deleted, vmID)
+		_, _ = fmt.Fprintf(w,
+			`{"data":"UPID:pve:00000001:00000002:00000003:qmdestroy:%d:root@pam:"}`,
+			vmID)
+	case strings.HasSuffix(path, "/status/current"):
+		_, _ = fmt.Sscanf(path, "qemu/%d/status/current", &vmID)
+		_, _ = fmt.Fprintf(w, `{"data":%s}`, f.vmJSON(vmID))
+	case strings.HasSuffix(path, "/config"):
+		_, _ = fmt.Sscanf(path, "qemu/%d/config", &vmID)
+		_, _ = fmt.Fprintf(w, `{"data":{"name":%q}}`, f.vms[vmID])
+	default:
+		http.NotFound(w, r)
+	}
+}
+
+// The sweep that also runs while the broker is in use removes only the VMs
+// that no device owns, sparing the VMs of devices that are set up and of
+// devices that are being set up.
+func TestRemoveOrphanedVMsSparesOwnedVMs(t *testing.T) {
+	saved := proxmoxTaskPollInterval
+	proxmoxTaskPollInterval = time.Millisecond
+	t.Cleanup(func() { proxmoxTaskPollInterval = saved })
+	api := &fakeSweepAPI{vms: map[int]string{
+		111: "ev-eve-set-up",
+		112: "ev-eve-being-set-up",
+		113: "ev-eve-orphan",
+		114: "not-from-the-broker",
+		115: "", // abandoned placeholder of a failed create
+		116: "", // placeholder of a create in progress
+	}}
+	srv := httptest.NewServer(api)
+	t.Cleanup(srv.Close)
+	client := proxmox.NewClient(srv.URL+"/api2/json", proxmox.WithHTTPClient(srv.Client()))
+	p := &ProxmoxProvider{
+		conf:    ProxmoxProviderConf{Node: "pve"},
+		client:  client,
+		devices: map[string]*proxmoxDevice{"set-up": {name: "set-up", vmID: 111}},
+		pending: map[string]*proxmoxDevice{
+			"being-set-up": {name: "being-set-up", vmID: 112},
+			"creating":     {name: "creating", vmID: 116},
+			"reserved":     nil,
+		},
+	}
+	node := (&proxmox.Node{}).New(client, "pve")
+	err := p.removeOrphanedVMs(context.Background(), logrus.NewEntry(logrus.New()), node)
+	if err != nil {
+		t.Fatalf("removeOrphanedVMs: %v", err)
+	}
+	sort.Ints(api.deleted)
+	if !reflect.DeepEqual(api.deleted, []int{113, 115}) {
+		t.Errorf("deleted VMs %v, want [113 115]", api.deleted)
+	}
+}
+
+// fakeOrphanAPI serves the listing and removal of the SDN VNets and of the
+// import storage "imp" volumes, recording what it is asked to delete.
+type fakeOrphanAPI struct {
+	mu             sync.Mutex
+	vnets          map[string]string // VNet name -> zone
+	volumes        []string
+	deletedVNets   []string
+	deletedVolumes []string
+}
+
+func (f *fakeOrphanAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	const upid = "UPID:pve:00000001:00000002:00000003:task:1:root@pam:"
+	path := strings.TrimPrefix(r.URL.Path, "/api2/json")
+	contentPrefix := "/nodes/pve/storage/imp/content/"
+	switch {
+	case path == "/cluster/status":
+		_, _ = io.WriteString(w, `{"data":[]}`)
+	case path == "/cluster/sdn/vnets" && r.Method == http.MethodGet:
+		var list []string
+		for name, zone := range f.vnets {
+			list = append(list, fmt.Sprintf(`{"vnet":%q,"zone":%q}`, name, zone))
+		}
+		_, _ = fmt.Fprintf(w, `{"data":[%s]}`, strings.Join(list, ","))
+	case strings.HasPrefix(path, "/cluster/sdn/vnets/") && r.Method == http.MethodDelete:
+		f.deletedVNets = append(f.deletedVNets,
+			strings.TrimPrefix(path, "/cluster/sdn/vnets/"))
+		_, _ = io.WriteString(w, `{"data":null}`)
+	case strings.HasPrefix(path, "/cluster/sdn") && r.Method == http.MethodPut:
+		_, _ = fmt.Fprintf(w, `{"data":%q}`, upid)
+	case strings.HasPrefix(path, "/nodes/pve/tasks/"):
+		_, _ = io.WriteString(w, `{"data":{"status":"stopped","exitstatus":"OK"}}`)
+	case path == "/nodes/pve/storage/imp/status":
+		_, _ = io.WriteString(w, `{"data":{}}`)
+	case path == "/nodes/pve/storage/imp/content":
+		var list []string
+		for _, volID := range f.volumes {
+			list = append(list, fmt.Sprintf(`{"volid":%q}`, volID))
+		}
+		_, _ = fmt.Fprintf(w, `{"data":[%s]}`, strings.Join(list, ","))
+	case strings.HasPrefix(path, contentPrefix) && r.Method == http.MethodDelete:
+		f.deletedVolumes = append(f.deletedVolumes,
+			strings.TrimPrefix(path, contentPrefix))
+		_, _ = fmt.Fprintf(w, `{"data":%q}`, upid)
+	default:
+		http.NotFound(w, r)
+	}
+}
+
+func newFakeOrphanProvider(t *testing.T, api *fakeOrphanAPI) (
+	*ProxmoxProvider, *proxmox.Node) {
+	t.Helper()
+	saved := proxmoxTaskPollInterval
+	proxmoxTaskPollInterval = time.Millisecond
+	t.Cleanup(func() { proxmoxTaskPollInterval = saved })
+	srv := httptest.NewServer(api)
+	t.Cleanup(srv.Close)
+	client := proxmox.NewClient(srv.URL+"/api2/json", proxmox.WithHTTPClient(srv.Client()))
+	p := &ProxmoxProvider{
+		conf:     ProxmoxProviderConf{Node: "pve", ImportStorage: "imp"},
+		client:   client,
+		devices:  map[string]*proxmoxDevice{},
+		pending:  map[string]*proxmoxDevice{},
+		networks: map[string]*proxmoxNetwork{},
+	}
+	return p, (&proxmox.Node{}).New(client, "pve")
+}
+
+// The sweep that also runs while the broker is in use removes only the
+// xconnect VNets that the provider does not track.
+func TestRemoveOrphanedVNetsSparesTrackedVNets(t *testing.T) {
+	tracked, orphan := xconnectBridgePrefix+"1", xconnectBridgePrefix+"2"
+	api := &fakeOrphanAPI{vnets: map[string]string{
+		tracked:                    sdnZone,
+		orphan:                     sdnZone,
+		"uplink":                   sdnZone,
+		xconnectBridgePrefix + "3": "other",
+	}}
+	p, _ := newFakeOrphanProvider(t, api)
+	p.networks["net"] = &proxmoxNetwork{name: "net", vnet: tracked}
+
+	if err := p.removeOrphanedVNets(
+		context.Background(), logrus.NewEntry(logrus.New())); err != nil {
+		t.Fatalf("removeOrphanedVNets: %v", err)
+	}
+	if !reflect.DeepEqual(api.deletedVNets, []string{orphan}) {
+		t.Errorf("deleted VNets %v, want [%s]", api.deletedVNets, orphan)
+	}
+}
+
+// The sweep that also runs while the broker is in use removes only the import
+// volumes of no device, sparing those of devices set up or being set up. It
+// tells the devices apart by the number of their setup, also when the name of
+// one device is a prefix of another's, or a setup number of another's.
+func TestRemoveOrphanedImportVolumesSparesOwnedVolumes(t *testing.T) {
+	setUp := &proxmoxDevice{name: "node", uploadSeq: 1}
+	beingSetUp := &proxmoxDevice{name: "being-set-up", uploadSeq: 3}
+	vol := func(dev *proxmoxDevice, suffix string) string {
+		return "imp:import/" + dev.uploadName(suffix)
+	}
+	owned := []string{vol(setUp, "scratch-data.raw"), vol(beingSetUp, "OVMF_CODE.raw")}
+	orphans := []string{
+		vol(&proxmoxDevice{name: "node-2", uploadSeq: 2}, "0.qcow2"),
+		vol(&proxmoxDevice{name: "node", uploadSeq: 12}, "0.qcow2"),
+		// An earlier setup of a name that is reserved again.
+		vol(&proxmoxDevice{name: "reserved", uploadSeq: 4}, "0.qcow2"),
+	}
+	api := &fakeOrphanAPI{volumes: append(append([]string{
+		"imp:import/not-from-the-broker.qcow2"}, owned...), orphans...)}
+	p, node := newFakeOrphanProvider(t, api)
+	p.devices[setUp.name] = setUp
+	p.pending[beingSetUp.name] = beingSetUp
+	p.pending["reserved"] = nil
+
+	err := p.removeOrphanedImportVolumes(
+		context.Background(), logrus.NewEntry(logrus.New()), node)
+	if err != nil {
+		t.Fatalf("removeOrphanedImportVolumes: %v", err)
+	}
+	if !reflect.DeepEqual(api.deletedVolumes, orphans) {
+		t.Errorf("deleted volumes %v, want %v", api.deletedVolumes, orphans)
 	}
 }
