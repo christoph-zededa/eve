@@ -1082,11 +1082,12 @@ pkgs: $(LINUXKIT) $(PKGS) $(LK_POSSIBLE_BUILD_ARG_TARGETS)
 
 newpkgs: images/rootfs.yml
 	go build -C tools/minilkt
-	./tools/minilkt/minilkt build --target-arch $(ZARCH) images/rootfs.yml $(PKG_BUILD_YAMLS)
+	./tools/minilkt/minilkt build --target-arch $(ZARCH) images/out/rootfs-$(HV)-$(PLATFORM).yml $(PKG_BUILD_YAMLS)
 	./tools/minilkt/minilkt build-pkg --target-arch $(ZARCH) pkg/u-boot/build.yml $(PKG_BUILD_YAMLS)
 	./tools/minilkt/minilkt build-pkg --target-arch $(ZARCH) pkg/uefi/build.yml $(PKG_BUILD_YAMLS)
+	./tools/minilkt/minilkt build-pkg --target-arch $(ZARCH) pkg/mkconf/build.yml $(PKG_BUILD_YAMLS)
 	for p in $(PKGS_DOCKER_LOAD); do \
-		 ./tools/minilkt/minilkt build-pkg pkg/$$p/build.yml $(PKG_BUILD_YAMLS) || exit 1; \
+		 ./tools/minilkt/minilkt build-pkg pkg/$$p/build.yml --target-arch $(ZARCH) $(PKG_BUILD_YAMLS) || exit 1; \
 	done
 	./tools/minilkt/minilkt i e2l
 	@echo Done building packages $(PKGS)
