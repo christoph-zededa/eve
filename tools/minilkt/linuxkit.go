@@ -3,11 +3,14 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
 
+	"github.com/opencontainers/go-digest"
 	imgspecv1 "github.com/opencontainers/image-spec/specs-go/v1"
 	imgcopy "go.podman.io/image/v5/copy"
 	"go.podman.io/image/v5/manifest"
@@ -48,6 +51,10 @@ func exportToLinuxkitCache(ctx context.Context, store storage.Store, image, lktI
 	}
 	platform, err := imagePlatform(ctx, src, sysCtx)
 	if err != nil {
+		return err
+	}
+	found, err := inLinuxkitCache(ctx, lktImage, platform.Architecture)
+	if err != nil || found {
 		return err
 	}
 	dst, err := ocilayout.NewReference(linuxkitCacheDir(), lktImage+"-"+platform.Architecture)
@@ -135,6 +142,68 @@ func linuxkitIndexPut(ctx context.Context, name string, desc imgspecv1.Descripto
 		return err
 	}
 	return dst.Commit(ctx, nil)
+}
+
+// inLinuxkitCache reports whether linuxkit pkg build finds lktImage, the full
+// docker.io/<org>/<name>:<tag> name, in its cache for arch and so skips it.
+// Like linuxkit's cache.ImageInCache: the index.json entry named lktImage is
+// a plain image, which counts for every arch, or an index with an image for
+// linux/arch, and that image's manifest, config and layer blobs all exist.
+func inLinuxkitCache(ctx context.Context, lktImage, arch string) (bool, error) {
+	absent := func(err error) (bool, error) {
+		var notFound ocilayout.ImageNotFoundError
+		if errors.As(err, &notFound) || errors.Is(err, fs.ErrNotExist) {
+			return false, nil
+		}
+		return false, err
+	}
+	dir := linuxkitCacheDir()
+	ref, err := ocilayout.NewReference(dir, lktImage)
+	if err != nil {
+		return false, err
+	}
+	src, err := ref.NewImageSource(ctx, nil)
+	if err != nil {
+		return absent(err)
+	}
+	defer src.Close()
+	blob, mimeType, err := src.GetManifest(ctx, nil)
+	if err != nil {
+		return absent(err)
+	}
+	if manifest.MIMETypeIsMultiImage(mimeType) {
+		list, err := manifest.ListFromBlob(blob, mimeType)
+		if err != nil {
+			return false, err
+		}
+		instances := list.Instances()
+		i := slices.IndexFunc(instances, func(d digest.Digest) bool {
+			u, err := list.Instance(d)
+			p := u.ReadOnly.Platform
+			return err == nil && p != nil && p.OS == "linux" && p.Architecture == arch && !manifest.MIMETypeIsMultiImage(u.MediaType)
+		})
+		if i < 0 {
+			return false, nil
+		}
+		if blob, _, err = src.GetManifest(ctx, &instances[i]); err != nil {
+			return absent(err)
+		}
+		mimeType = manifest.GuessMIMEType(blob)
+	}
+	m, err := manifest.FromBlob(blob, mimeType)
+	if err != nil {
+		return false, err
+	}
+	blobs := []types.BlobInfo{m.ConfigInfo()}
+	for _, l := range m.LayerInfos() {
+		blobs = append(blobs, l.BlobInfo)
+	}
+	for _, b := range blobs {
+		if _, err := os.Stat(filepath.Join(dir, "blobs", b.Digest.Algorithm().String(), b.Digest.Encoded())); err != nil {
+			return absent(err)
+		}
+	}
+	return true, nil
 }
 
 func exportAllToLinuxkitCache() error {
